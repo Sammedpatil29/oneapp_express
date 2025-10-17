@@ -28,7 +28,7 @@ const Ride = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: User, // points to the users table
+        model: 'user_custonuser', // points to the users table
         key: "id",
       },
       onDelete: "CASCADE", // optional — delete rides if user is deleted

@@ -21,14 +21,15 @@ async function verifyUserJwtToken(token) {
 
     // ✅ Decode and verify token
     const decoded = jwt.verify(token, JWT_SECRET);
-    const { id, role } = decoded;
+    const { user_id, role } = decoded;
+    
 
     let user = null;
 
     // ✅ Fetch from the correct table based on role
     switch (role) {
       case "user":
-        user = await User.findByPk(id);
+        user = await User.findByPk(user_id);
         break;
 
     //   case "provider":
@@ -52,6 +53,7 @@ async function verifyUserJwtToken(token) {
     }
 
     // ✅ Return both user data and role
+    
     return { user, role };
   } catch (error) {
     console.error("❌ JWT verification failed:", error.message);

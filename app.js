@@ -24,7 +24,9 @@ const io = new Server(server, {
       "https://localhost",              // your local Ionic/React/Vue app
       "https://hv0ft3xh-8100.inc1.devtunnels.ms",              // your local Ionic/React/Vue app
       "http://localhost",              // your local Ionic/React/Vue app
-      "https://your-production-site.com" // optional - your deployed frontend
+      "https://your-production-site.com",
+      "http://localhost:8100",
+      "https://localhost:8100" // optional - your deployed frontend
     ],
     methods: ["GET", "POST"],
     credentials: true, // if you use cookies/auth

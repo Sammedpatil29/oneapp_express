@@ -1,10 +1,11 @@
 
 const Ride = require('../models/rideModel')
-const {verifyUserJwtToken} = require('../utils/jwttoken')
+const verifyUserJwtToken = require('../utils/jwttoken')
 
 // Core logic — no req/res
 async function createRide(data) {
   const { token, trip_details, service_details, raider_details } = data;
+  console.log('reached')
   
   if (!trip_details || !service_details || !token) {
     throw new Error('Missing required fields');
@@ -17,6 +18,7 @@ async function createRide(data) {
   }
 
   const { user, role } = verified;
+  console.log('searchinggggggggggg')
 
   const status = 'searching';
   const newRide = await Ride.create({
@@ -57,9 +59,9 @@ async function getRidesHandler (req, res) {
 }
 
 async function cancelRide(data) {
-  const  {token, rideId}  = data;
+  const  {token, id}  = data;
 
-  if (!rideId || !token) {
+  if (!id || !token) {
     throw new Error('some parameters missing in body');
   }
 
@@ -72,9 +74,9 @@ async function cancelRide(data) {
 
 const {user, role} = verified
 if(role == 'user'){
-    const ride = await Ride.findOne({ where: { id: rideId, userId: user.id } });
+    const ride = await Ride.findOne({ where: { id: id, userId: user.id } });
     if (!ride) {
-    throw new Error(`Ride with ID ${rideId} and ${user.id} not found`);
+    throw new Error(`Ride with ID ${id} and ${user.id} not found`);
   }
   const updatedRide = await ride.update({ status: 'cancelled' });
 
@@ -82,9 +84,9 @@ if(role == 'user'){
 }
 
 if(role == 'admin' || role == 'manager'){
-    const ride = await Ride.findOne({ where: { id: rideId } });
+    const ride = await Ride.findOne({ where: { id: id } });
     if (!ride) {
-    throw new Error(`Ride with ID ${rideId} and ${user.id} not found`);
+    throw new Error(`Ride with ID ${id} and ${user.id} not found`);
   }
   const updatedRide = await ride.update({ status: 'cancelled' });
 
