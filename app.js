@@ -1,35 +1,81 @@
 const express = require('express');
-const Razorpay = require('razorpay');
+const http = require('http');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const { Server } = require('socket.io');
+const admin = require('firebase-admin');
+const fs = require('fs');
+const axios = require('axios');
+const sequelize = require('./db');
+const rideRoutes = require('./Routes/rideRoutes');
+const pool = require('./db'); // Only if you actually use it
+const { createRide } = require('./controllers/createRideController');
+const { cancelRide } = require('./controllers/createRideController');
+const { searchAndAssignRider } = require('./controllers/createRideController');
 
+const PORT = 3000;
 const app = express();
+
+// ✅ Create HTTP server and attach Socket.IO properly
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*', // For dev — replace with your Ionic app URL later
+    methods: ['GET', 'POST'],
+  },
+});
+module.exports.io = io;
+
+
+// ===== Middleware =====
 app.use(cors());
 app.use(bodyParser.json());
+app.use(express.json());
 
-const razorpay = new Razorpay({
-  key_id: 'rzp_test_mumd7Md1QvW8oy',
-  key_secret: 'XBW57RY49na0TOBJWiCOH41G'
+// ===== Sequelize sync =====
+sequelize
+  .sync({ force: false })
+  .then(() => console.log('✅ Models are synced with the database.'))
+  .catch((err) => console.error('❌ Error syncing models:', err));
+
+// ===== Routes =====
+app.use(rideRoutes);
+
+// ===== Root route =====
+app.get('/', (req, res) => {
+  res.send('✅ Express + Socket.IO server is running!');
 });
 
-app.post('/create-order', async (req, res) => {
-  const { amount } = req.body; // amount in rupees
+// ===== Socket.IO events =====
+io.on('connection', (socket) => {
+  console.log('🟢 A user connected:', socket.id);
 
-  const options = {
-    amount: amount * 100, // convert to paise
-    currency: 'INR',
-    receipt: 'order_rcptid_' + new Date().getTime()
-  };
+  // Example: send a message to the connected client
+  socket.emit('welcome', 'Hello from server 👋');
 
-  try {
-    const order = await razorpay.orders.create(options);
-    res.json({ orderId: order.id });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error creating order');
-  }
+  // Example: listen for client message
+  socket.on('createRide', async(msg) => {
+    console.log('📩 Received from client:', msg);
+    // Broadcast back to all clients
+    const ride = await createRide(msg);
+    socket.emit('rideUpdate', ride);
+    const assignRider = await searchAndAssignRider(ride.id)
+    socket.emit('rideUpdate', assignRider)
+    // io.emit('serverMessage', `✅ Ride created with ID: ${ride.id}`);
+  });
+
+  socket.on('cancelRide', async(msg) => {
+    const ride = await cancelRide(msg);
+
+    socket.emit('rideUpdate', ride)
+  })
+
+  socket.on('disconnect', () => {
+    console.log('🔴 User disconnected:', socket.id);
+  });
 });
 
-app.listen(3000, () => {
-  console.log('Server running on http://localhost:3000');
+// ===== Start the server =====
+server.listen(PORT, () => {
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
