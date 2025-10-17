@@ -20,8 +20,12 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*', // For dev — replace with your Ionic app URL later
-    methods: ['GET', 'POST'],
+    origin: [
+      "https://localhost",              // your local Ionic/React/Vue app
+      "https://your-production-site.com" // optional - your deployed frontend
+    ],
+    methods: ["GET", "POST"],
+    credentials: true, // if you use cookies/auth
   },
 });
 module.exports.io = io;
