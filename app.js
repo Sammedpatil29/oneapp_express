@@ -22,6 +22,7 @@ const io = new Server(server, {
   cors: {
     origin: [
       "https://localhost",              // your local Ionic/React/Vue app
+      "https://hv0ft3xh-8100.inc1.devtunnels.ms",              // your local Ionic/React/Vue app
       "http://localhost",              // your local Ionic/React/Vue app
       "https://your-production-site.com" // optional - your deployed frontend
     ],
