@@ -1,15 +1,26 @@
 
 const Ride = require('../models/rideModel')
+const {verifyUserJwtToken} = require('../utils/jwttoken')
 
 // Core logic — no req/res
 async function createRide(data) {
-  const { trip_details, service_details, raider_details } = data;
-  if (!trip_details || !service_details) {
+  const { token, trip_details, service_details, raider_details } = data;
+  
+  if (!trip_details || !service_details || !token) {
     throw new Error('Missing required fields');
   }
 
+  const verified = await verifyUserJwtToken(token)
+
+  if(!verified){
+    throw new Error('Failed to verify token');
+  }
+
+  const { user, role } = verified;
+
   const status = 'searching';
   const newRide = await Ride.create({
+    userId: user.id,
     trip_details,
     service_details,
     raider_details,
@@ -46,23 +57,40 @@ async function getRidesHandler (req, res) {
 }
 
 async function cancelRide(data) {
-  const  rideId  = data.id;
+  const  {token, rideId}  = data;
 
-  if (!rideId) {
-    throw new Error('rideId is missing');
+  if (!rideId || !token) {
+    throw new Error('some parameters missing in body');
   }
 
   // ✅ Correct way to find by id
-  const ride = await Ride.findOne({ where: { id: rideId } });
+  const verified = await verifyUserJwtToken(token)
 
-  if (!ride) {
-    throw new Error(`Ride with ID ${rideId} not found`);
+  if(!verified){
+    throw new Error('Token verification failed')
   }
 
-  // ✅ Update the ride status
+const {user, role} = verified
+if(role == 'user'){
+    const ride = await Ride.findOne({ where: { id: rideId, userId: user.id } });
+    if (!ride) {
+    throw new Error(`Ride with ID ${rideId} and ${user.id} not found`);
+  }
   const updatedRide = await ride.update({ status: 'cancelled' });
 
   return updatedRide;
+}
+
+if(role == 'admin' || role == 'manager'){
+    const ride = await Ride.findOne({ where: { id: rideId } });
+    if (!ride) {
+    throw new Error(`Ride with ID ${rideId} and ${user.id} not found`);
+  }
+  const updatedRide = await ride.update({ status: 'cancelled' });
+
+  return updatedRide;
+}
+  
 }
 
 async function cancelRideHandler(req, res) {

@@ -1,32 +1,44 @@
 // rideModel.js
+const { DataTypes } = require("sequelize");
+const sequelize = require("../db");
+const User = require("./customUserModel"); // import user model
 
-const { DataTypes } = require('sequelize');
-const sequelize = require('../db'); // Import the Sequelize instance
+const Ride = sequelize.define(
+  "Ride",
+  {
+    trip_details: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+    },
+    service_details: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+    },
+    raider_details: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+    },
+    status: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
 
-const Ride = sequelize.define('Ride', {
-  // Define the table schema
-
-  // JSON fields for trip details, service details, and raider details
-  trip_details: {
-    type: DataTypes.JSONB, // Use JSONB for JSON fields in PostgreSQL
-    allowNull: false,
+    // ✅ Foreign key column
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: User, // points to the users table
+        key: "id",
+      },
+      onDelete: "CASCADE", // optional — delete rides if user is deleted
+      onUpdate: "CASCADE",
+    },
   },
-  service_details: {
-    type: DataTypes.JSONB,
-    allowNull: false,
-  },
-  raider_details: {
-    type: DataTypes.JSONB,
-    allowNull: true,
-  },
-  status: {
-    type: DataTypes.STRING,
-    allowNull: true,
-  },
-}, {
-  // Additional table options (optional)
-  tableName: 'rides',  // Explicit table name (optional)
-  timestamps: true,    // This will add createdAt and updatedAt automatically
-});
+  {
+    tableName: "rides",
+    timestamps: true,
+  }
+);
 
 module.exports = Ride;
