@@ -124,8 +124,17 @@ async function searchAndAssignRider(rideId) {
     raider_details: {
       name: 'sammed',
       image_url: '',
-      current_location: 'Bangalore',
+      contact: '9591420068',
+      current_location: {
+        lat: 12.8558012,
+        lng: 77.6776055
+      },
       vehicle_number: 'KA03KZ9922',
+      vehicle_type: 'bike',
+      fuel_type: 'ev',
+      join_date: '29/04/2025',
+      vehicle_model: 'Ola s1 X 4kw'
+
     },
     status: 'assigned',
   });
