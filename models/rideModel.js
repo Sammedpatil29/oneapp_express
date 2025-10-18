@@ -22,6 +22,10 @@ const Ride = sequelize.define(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    otp: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
 
     // ✅ Foreign key column
     userId: {

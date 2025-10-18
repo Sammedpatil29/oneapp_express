@@ -21,12 +21,14 @@ async function createRide(data) {
   console.log('searchinggggggggggg')
 
   const status = 'searching';
+  const passcode = Math.floor(1000 + Math.random() * 9000);
   const newRide = await Ride.create({
     userId: user.id,
     trip_details,
     service_details,
     raider_details,
     status,
+    otp: passcode
   });
 
   return newRide;
