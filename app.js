@@ -9,9 +9,7 @@ const axios = require('axios');
 const sequelize = require('./db');
 const rideRoutes = require('./Routes/rideRoutes');
 const pool = require('./db'); // Only if you actually use it
-const { createRide } = require('./controllers/createRideController');
-const { cancelRide } = require('./controllers/createRideController');
-const { searchAndAssignRider } = require('./controllers/createRideController');
+
 
 const PORT = 3000;
 const app = express();
@@ -32,7 +30,12 @@ const io = new Server(server, {
     credentials: true, // if you use cookies/auth
   },
 });
+
 module.exports.io = io;
+
+const { createRide } = require('./controllers/createRideController');
+const { cancelRide } = require('./controllers/createRideController');
+const { searchAndAssignRider } = require('./controllers/createRideController');
 
 
 // ===== Middleware =====
