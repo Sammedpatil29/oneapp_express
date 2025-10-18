@@ -1,6 +1,7 @@
 // utils/verifyUserJwtToken.js
 const jwt = require("jsonwebtoken");
 const User = require("../models/customUserModel");
+const AdminUser = require("../models/adminUser");
 // const Provider = require("../models/providerModel");
 // const Admin = require("../models/adminModel");
 
@@ -23,6 +24,7 @@ async function verifyUserJwtToken(token) {
     const decoded = jwt.verify(token, JWT_SECRET);
     const { user_id, role } = decoded;
     
+    
 
     let user = null;
 
@@ -36,13 +38,14 @@ async function verifyUserJwtToken(token) {
     //     user = await Provider.findByPk(id);
     //     break;
 
-    //   case "admin":
-    //     user = await Admin.findByPk(id);
-    //     break;
+      case "admin":
+        user = await AdminUser.findByPk(decoded.Admin_user_id);
+       
+        break;
 
-    //     case "manager":
-    //     user = await Admin.findByPk(id);
-    //     break;
+        case "manager":
+        user = await AdminUser.findByPk(decoded.Admin_user_id);
+        break;
 
       default:
         throw new Error("Unknown role in token");

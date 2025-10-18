@@ -1,11 +1,14 @@
 
 const Ride = require('../models/rideModel')
+const Rider = require('../models/ridersModel')
 const verifyUserJwtToken = require('../utils/jwttoken')
+const { Op } = require('sequelize');
+const io = require('../app');
 
 // Core logic — no req/res
 async function createRide(data) {
   const { token, trip_details, service_details, raider_details } = data;
-  console.log('reached')
+  
   
   if (!trip_details || !service_details || !token) {
     throw new Error('Missing required fields');
@@ -18,7 +21,7 @@ async function createRide(data) {
   }
 
   const { user, role } = verified;
-  console.log('searchinggggggggggg')
+ 
 
   const status = 'searching';
   const passcode = Math.floor(1000 + Math.random() * 9000);
@@ -122,27 +125,70 @@ async function searchAndAssignRider(rideId) {
   // Wait 5 seconds before assigning rider
   await new Promise((resolve) => setTimeout(resolve, 5000));
 
-  const updatedRide = await ride.update({
-    raider_details: {
-      name: 'sammed',
-      image_url: '',
-      contact: '9591420068',
-      current_location: {
-        lat: 12.8558012,
-        lng: 77.6776055
-      },
-      vehicle_number: 'KA03KZ9922',
-      vehicle_type: 'bike',
-      fuel_type: 'ev',
-      join_date: '29/04/2025',
-      vehicle_model: 'Ola s1 X 4kw'
+  const riderList = await Rider.findAll({
+    where : {
+      status: 'online',
+    }
+  })
 
-    },
+  console.log(riderList)
+
+  for (const rider of riderList) {
+    const riderId = rider.id;
+    console.log(`Sending ride request to rider ${riderId}`);
+
+    io.to(`rider-${riderId}`).emit('ride:request', {
+      rideId,
+      origin: ride.origin,
+      destination: ride.drop,
+    });
+
+    // Wait for 10 seconds or until rider accepts
+    const accepted = await waitForRiderAcceptance(riderId, rideId, 10000);
+
+    if (accepted) {
+      console.log(`✅ Rider ${riderId} accepted the ride`);
+
+      const updatedRide = await ride.update({
+    raider_details: rider,
     status: 'assigned',
+    rider_id: rider.id
   });
 
-  return updatedRide;
+  await rider.update({ status: 'on-ride' });
+   return updatedRide;
+  }else {
+      console.log(`❌ Rider ${riderId} did not accept in time. Trying next...`);
+    }
+  }
+
+  throw new Error('No rider accepted the ride request');
+
 }
+
+function waitForRiderAcceptance(riderId, rideId, timeoutMs) {
+  return new Promise((resolve) => {
+    let accepted = false;
+
+    const timeout = setTimeout(() => {
+      if (!accepted) resolve(false);
+    }, timeoutMs);
+
+    const handler = (data) => {
+      if (data.riderId === riderId && data.rideId === rideId) {
+        accepted = true;
+        clearTimeout(timeout);
+        resolve(true);
+        // 🧼 Clean up the listener
+        io.off('rider:accept_ride', handler);
+      }
+    };
+
+    io.on('rider:accept_ride', handler);
+  });
+}
+
+
 
 
 module.exports = { createRide, createRideHandler, getRidesHandler,cancelRide, cancelRideHandler, searchAndAssignRider };

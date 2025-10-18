@@ -1,8 +1,8 @@
 // rideModel.js
 const { DataTypes } = require("sequelize");
 const sequelize = require("../db");
-const User = require("./customUserModel"); // import user model
-
+const User = require("./customUserModel");
+const Rider = require("./ridersModel")
 const Ride = sequelize.define(
   "Ride",
   {
@@ -44,5 +44,8 @@ const Ride = sequelize.define(
     timestamps: true,
   }
 );
+
+Rider.hasMany(Ride, { foreignKey: "id" });
+Ride.belongsTo(Rider, { foreignKey: "id" });
 
 module.exports = Ride;
