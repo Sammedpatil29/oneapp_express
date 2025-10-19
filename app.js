@@ -6,8 +6,8 @@ const { Server } = require('socket.io');
 const admin = require('firebase-admin');
 const fs = require('fs');
 const axios = require('axios');
-const sequelize = require('./db');
-const rideRoutes = require('./Routes/rideRoutes');
+
+
 const pool = require('./db'); // Only if you actually use it
 
 
@@ -24,6 +24,7 @@ const io = new Server(server, {
       "http://localhost",              // your local Ionic/React/Vue app
       "https://your-production-site.com",
       "http://localhost:8100",
+      "http://localhost:8200",
       "https://localhost:8100" // optional - your deployed frontend
     ],
     methods: ["GET", "POST"],
@@ -32,10 +33,13 @@ const io = new Server(server, {
 });
 
 module.exports.io = io;
-
+const rideRoutes = require('./Routes/rideRoutes');
 const { createRide } = require('./controllers/createRideController');
 const { cancelRide } = require('./controllers/createRideController');
 const { searchAndAssignRider } = require('./controllers/createRideController');
+const { syncRider } = require('./controllers/riderController');
+const Rider = require('./models/ridersModel');
+const sequelize = require('./db');
 
 
 // ===== Middleware =====
@@ -63,6 +67,41 @@ io.on('connection', (socket) => {
 
   // Example: send a message to the connected client
   socket.emit('welcome', 'Hello from server 👋');
+
+  socket.on('syncRider', async(msg) => {
+    const syncRider = await Rider.findOne({
+      where: {
+        id: msg.riderId
+      }
+    })
+
+    if(!syncRider){
+      throw new Error('rider not found')
+    }
+
+    syncRider.socket_id = await socket.id
+    syncRider.save()
+    // const syncRider = await syncRider(msg)
+    socket.emit('riderUpdate', syncRider);
+  })
+
+  socket.on('changeRiderStatus', async(msg) => {
+    const syncRider = await Rider.findOne({
+      where: {
+        id: msg.riderId
+      }
+    })
+
+    if(!syncRider){
+      throw new Error('rider not found')
+    }
+console.log(msg)
+    syncRider.status = await msg.status
+    console.log(msg.status)
+    syncRider.save()
+    // const syncRider = await syncRider(msg)
+    socket.emit('riderUpdate', syncRider);
+  })
 
   // Example: listen for client message
   socket.on('createRide', async(msg) => {

@@ -8,13 +8,15 @@ const { io } = require('../app');
 const { createRideHandler } = require('../controllers/createRideController');
 const { createRiderHandler } = require('../controllers/riderController');
 const { getRidesHandler } = require('../controllers/createRideController');
-const { verifyRider } = require('../controllers/riderController');
+const { verifyRiderDocs } = require('../controllers/riderController');
+const { loginRider } = require('../controllers/riderController');
 // Create a new ride
 
 router.post('/api/ride/create', createRideHandler);
 router.get('/api/ride', getRidesHandler);
 router.post('/api/rider/create', createRiderHandler)
-router.post('/api/rider/verify', verifyRider)
+router.post('/api/rider/verify', verifyRiderDocs)
+router.post('/api/rider/login', loginRider)
 
 
 module.exports = router;

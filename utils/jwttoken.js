@@ -2,6 +2,7 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/customUserModel");
 const AdminUser = require("../models/adminUser");
+const Rider = require("../models/ridersModel");
 // const Provider = require("../models/providerModel");
 // const Admin = require("../models/adminModel");
 
@@ -34,9 +35,9 @@ async function verifyUserJwtToken(token) {
         user = await User.findByPk(user_id);
         break;
 
-    //   case "provider":
-    //     user = await Provider.findByPk(id);
-    //     break;
+      case "rider":
+        user = await Rider.findByPk(id);
+        break;
 
       case "admin":
         user = await AdminUser.findByPk(decoded.Admin_user_id);
@@ -64,4 +65,45 @@ async function verifyUserJwtToken(token) {
   }
 }
 
-module.exports = verifyUserJwtToken;
+async function createRiderJWTtoken(payload) {
+  const { phone, password } = payload;
+
+  if (!phone || !password) {
+    throw new Error('Phone and password are required');
+  }
+
+  const user = await Rider.findOne({
+    where: { contact: phone }
+  });
+
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  // In real apps, use bcrypt for hashed password comparison
+  const isPasswordValid = user.password === password;
+
+  if (!isPasswordValid) {
+    throw new Error('Invalid password');
+  }
+
+  // Only include safe fields in token payload
+  const tokenPayload = {
+    user_id: user.id,
+    role: 'rider'
+  };
+
+  const token = jwt.sign(tokenPayload, JWT_SECRET, {
+    expiresIn: '7d'
+  });
+
+  const tokenData = {
+    token: token,
+    riderId: user.id
+  }
+
+
+  return tokenData;
+}
+
+module.exports = {verifyUserJwtToken, createRiderJWTtoken};

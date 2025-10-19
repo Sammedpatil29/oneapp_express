@@ -1,5 +1,8 @@
-const verifyUserJwtToken = require('../utils/jwttoken')
 const Rider = require('../models/ridersModel')
+
+const verifyUserJwtToken = require('../utils/jwttoken')
+const {createRiderJWTtoken} = require('../utils/jwttoken')
+
 
 async function createRider(data) {
   try {
@@ -43,7 +46,7 @@ async function createRiderHandler (req, res) {
   }
 };
 
-async function verifyRider(req, res) {
+async function verifyRiderDocs(req, res) {
   const { token, is_verified, message, riderId } = req.body;
 
   if (!token || !riderId) {
@@ -83,4 +86,33 @@ async function verifyRider(req, res) {
   }
 }
 
-module.exports = { createRider, createRiderHandler, verifyRider };
+async function loginRider(req, res) {
+  try {
+    // You might want to verify credentials here first
+    console.log('login')
+    const tokenData = await  createRiderJWTtoken(req.body);
+    
+
+    if (!tokenData) {
+      return res.status(400).json({
+        message: 'Error creating token',
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Login approved',
+      tokenData, // ✅ Send the token back
+
+    });
+
+  } catch (error) {
+    console.error('❌ Error in loginRider:', error.message);
+    return res.status(500).json({
+      message: 'Internal server error',
+    });
+  }
+}
+
+
+
+module.exports = { createRider, createRiderHandler, verifyRiderDocs, loginRider };

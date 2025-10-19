@@ -1,9 +1,11 @@
 
 const Ride = require('../models/rideModel')
 const Rider = require('../models/ridersModel')
-const verifyUserJwtToken = require('../utils/jwttoken')
+
 const { Op } = require('sequelize');
-const io = require('../app');
+const { io } = require('../app');
+
+const {verifyUserJwtToken} = require('../utils/jwttoken')
 
 // Core logic — no req/res
 async function createRide(data) {
@@ -123,7 +125,7 @@ async function searchAndAssignRider(rideId) {
   }
 
   // Wait 5 seconds before assigning rider
-  await new Promise((resolve) => setTimeout(resolve, 5000));
+  // await new Promise((resolve) => setTimeout(resolve, 5000));
 
   const riderList = await Rider.findAll({
     where : {
@@ -137,7 +139,7 @@ async function searchAndAssignRider(rideId) {
     const riderId = rider.id;
     console.log(`Sending ride request to rider ${riderId}`);
 
-    io.to(`rider-${riderId}`).emit('ride:request', {
+    io.to(rider.socket_id).emit('ride:request', {
       rideId,
       origin: ride.origin,
       destination: ride.drop,
