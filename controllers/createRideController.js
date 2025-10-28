@@ -118,12 +118,21 @@ async function searchAndAssignRider(rideId) {
   const ride = await Ride.findByPk(rideId);
   if (!ride) return { success: false, message: 'Ride not found' };
 
-  const MAX_DURATION = 3 * 60 * 1000;
-  const INTERVAL = 5000;
-  const startTime = Date.now();
+  try {
+  const MAX_ATTEMPTS = 3; // Number of retry rounds
+  const TIMEOUT_PER_RIDER = 10000; // Wait time for each rider response
+  const DELAY_BETWEEN_ROUNDS = 2000; // Optional delay between rounds
 
-  while (Date.now() - startTime < MAX_DURATION) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    console.log(`🔁 Attempt ${attempt}/${MAX_ATTEMPTS} to assign a rider...`);
+
     const riders = await Rider.findAll({ where: { status: 'online' } });
+
+    if (!riders.length) {
+      console.log('⚠️ No online riders found.');
+      await new Promise((res) => setTimeout(res, DELAY_BETWEEN_ROUNDS));
+      continue;
+    }
 
     for (const rider of riders) {
       console.log(`📨 Sending ride request to Rider ${rider.id}`);
@@ -134,27 +143,41 @@ async function searchAndAssignRider(rideId) {
       });
 
       // Wait for rider response
-      const accepted = await waitForRiderResponse(rider.id, rideId, 10000);
+      const accepted = await waitForRiderResponse(rider.id, rideId, TIMEOUT_PER_RIDER);
 
       if (accepted === 'accepted') {
+        console.log(`✅ Rider ${rider.id} accepted the ride!`);
+
         await rider.update({ status: 'on-ride' });
         await ride.update({
           raider_details: rider,
           status: 'assigned',
+          rider_id: rider.id,
         });
-        
 
         io.to(rider.socket_id).emit('ride:confirmed', ride);
         return { success: true, ride, rider };
+      } else {
+        console.log(`⏱️ Rider ${rider.id} did not accept (response: ${accepted}).`);
       }
     }
 
-    console.log('🔁 Retrying with next batch of riders...');
-    await new Promise((res) => setTimeout(res, INTERVAL));
+    // No riders accepted this round — wait before retrying
+    if (attempt < MAX_ATTEMPTS) {
+      console.log(`🕒 No acceptance in round ${attempt}. Retrying in 2s...`);
+      await new Promise((res) => setTimeout(res, DELAY_BETWEEN_ROUNDS));
+    }
   }
 
-  console.log('❌ No riders accepted within time limit');
-  return { success: false, message: 'No riders accepted the ride' };
+  console.log('❌ No riders accepted after 3 attempts.');
+  return { success: false, message: 'No riders accepted the ride after 3 tries.' };
+
+} catch (error) {
+  console.error('🚨 Error in rider assignment:', error);
+  return { success: false, message: 'Error assigning rider.' };
+}
+
+  
 }
 
 
