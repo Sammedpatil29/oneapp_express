@@ -114,6 +114,18 @@ console.log(msg)
     // io.emit('serverMessage', `✅ Ride created with ID: ${ride.id}`);
   });
 
+  // --- Rider accepts ride ---
+  socket.on('ride:accept', (data) => {
+    console.log(`✅ Rider ${data.riderId} accepted ride ${data.rideId}`);
+    io.emit('rider:accepted', data); // Global event that waitForRiderResponse() listens for
+  });
+
+  // --- Rider rejects ride ---
+  socket.on('ride:reject', (data) => {
+    console.log(`❌ Rider ${data.riderId} rejected ride ${data.rideId}`);
+    io.emit('rider:rejected', data);
+  });
+
   socket.on('cancelRide', async(msg) => {
     const ride = await cancelRide(msg);
 

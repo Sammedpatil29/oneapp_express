@@ -115,80 +115,76 @@ async function cancelRideHandler(req, res) {
 }
 
 async function searchAndAssignRider(rideId) {
-  if (!rideId) {
-    throw new Error('Ride ID is missing');
-  }
+  const ride = await Ride.findByPk(rideId);
+  if (!ride) return { success: false, message: 'Ride not found' };
 
-  const ride = await Ride.findOne({ where: { id: rideId } });
-  if (!ride) {
-    throw new Error(`Ride with ID ${rideId} not found`);
-  }
+  const MAX_DURATION = 3 * 60 * 1000;
+  const INTERVAL = 5000;
+  const startTime = Date.now();
 
-  // Wait 5 seconds before assigning rider
-  // await new Promise((resolve) => setTimeout(resolve, 5000));
+  while (Date.now() - startTime < MAX_DURATION) {
+    const riders = await Rider.findAll({ where: { status: 'online' } });
 
-  const riderList = await Rider.findAll({
-    where : {
-      status: 'online',
+    for (const rider of riders) {
+      console.log(`📨 Sending ride request to Rider ${rider.id}`);
+      io.to(rider.socket_id).emit('ride:request', {
+        rideId,
+        origin: ride.trip_details.origin,
+        destination: ride.trip_details.drop,
+      });
+
+      // Wait for rider response
+      const accepted = await waitForRiderResponse(rider.id, rideId, 10000);
+
+      if (accepted === 'accepted') {
+        await rider.update({ status: 'on-ride' });
+        await ride.update({
+          raider_details: rider,
+          status: 'assigned',
+        });
+        
+
+        io.to(rider.socket_id).emit('ride:confirmed', ride);
+        return { success: true, ride, rider };
+      }
     }
-  })
 
-  console.log(riderList)
-
-  for (const rider of riderList) {
-    const riderId = rider.id;
-    console.log(`Sending ride request to rider ${riderId}`);
-
-    io.to(rider.socket_id).emit('ride:request', {
-      rideId,
-      origin: ride.origin,
-      destination: ride.drop,
-    });
-
-    // Wait for 10 seconds or until rider accepts
-    const accepted = await waitForRiderAcceptance(riderId, rideId, 10000);
-
-    if (accepted) {
-      console.log(`✅ Rider ${riderId} accepted the ride`);
-
-      const updatedRide = await ride.update({
-    raider_details: rider,
-    status: 'assigned',
-    rider_id: rider.id
-  });
-
-  await rider.update({ status: 'on-ride' });
-   return updatedRide;
-  }else {
-      console.log(`❌ Rider ${riderId} did not accept in time. Trying next...`);
-    }
+    console.log('🔁 Retrying with next batch of riders...');
+    await new Promise((res) => setTimeout(res, INTERVAL));
   }
 
-  throw new Error('No rider accepted the ride request');
-
+  console.log('❌ No riders accepted within time limit');
+  return { success: false, message: 'No riders accepted the ride' };
 }
 
-function waitForRiderAcceptance(riderId, rideId, timeoutMs) {
+
+function waitForRiderAcceptance(riderId, rideId, timeout = 10000) {
   return new Promise((resolve) => {
-    let accepted = false;
+    const timer = setTimeout(() => resolve('timeout'), timeout);
 
-    const timeout = setTimeout(() => {
-      if (!accepted) resolve(false);
-    }, timeoutMs);
-
-    const handler = (data) => {
-      if (data.riderId === riderId && data.rideId === rideId) {
-        accepted = true;
-        clearTimeout(timeout);
-        resolve(true);
-        // 🧼 Clean up the listener
-        io.off('rider:accept_ride', handler);
+    const onAccept = (data) => {
+      if (data.rideId === rideId && data.riderId === riderId) {
+        clearTimeout(timer);
+        io.off('rider:accepted', onAccept);
+        io.off('rider:rejected', onReject);
+        resolve('accepted');
       }
     };
 
-    io.on('rider:accept_ride', handler);
+    const onReject = (data) => {
+      if (data.rideId === rideId && data.riderId === riderId) {
+        clearTimeout(timer);
+        io.off('rider:accepted', onAccept);
+        io.off('rider:rejected', onReject);
+        resolve('rejected');
+      }
+    };
+
+    io.on('rider:accepted', onAccept);
+    io.on('rider:rejected', onReject);
   });
 }
+
 
 
 
