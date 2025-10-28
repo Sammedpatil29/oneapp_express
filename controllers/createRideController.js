@@ -158,7 +158,7 @@ async function searchAndAssignRider(rideId) {
 }
 
 
-function waitForRiderAcceptance(riderId, rideId, timeout = 10000) {
+function waitForRiderResponse(riderId, rideId, timeout = 10000) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve('timeout'), timeout);
 
