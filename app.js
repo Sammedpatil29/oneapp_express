@@ -127,6 +127,7 @@ console.log(msg)
   });
 
   socket.on('cancelRide', async(msg) => {
+    console.log(`ride cancel ${msg}`)
     const ride = await cancelRide(msg);
 
     socket.emit('rideUpdate', ride)

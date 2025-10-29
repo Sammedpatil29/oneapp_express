@@ -66,7 +66,7 @@ async function getRidesHandler (req, res) {
 }
 
 async function cancelRide(data) {
-  const  {token, id}  = data;
+  const  {token, id}  = data; 
 
   if (!id || !token) {
     throw new Error('some parameters missing in body');
