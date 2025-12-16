@@ -1,8 +1,8 @@
-const Ride = require('../models/rideModel') 
-const Rider = require('../models/ridersModel') 
-const { Op } = require('sequelize'); 
-const { io } = require('../app'); 
-const {verifyUserJwtToken} = require('../utils/jwttoken')
+const Ride = require('../models/rideModel');
+const Rider = require('../models/ridersModel');
+const { Op } = require('sequelize');
+const { io, socketMap } = require('../app'); // 🔴 socketMap added
+const { verifyUserJwtToken } = require('../utils/jwttoken');
 
 /* =========================
    CREATE RIDE
@@ -40,7 +40,7 @@ async function createRideHandler(req, res) {
 }
 
 /* =========================
-   GET RIDES (FIXED QUERY)
+   GET RIDES
 ========================= */
 async function getRidesHandler(req, res) {
   try {
@@ -52,7 +52,7 @@ async function getRidesHandler(req, res) {
 }
 
 /* =========================
-   CANCEL RIDE (SAFE)
+   CANCEL RIDE
 ========================= */
 async function cancelRide(data) {
   const { token, id } = data;
@@ -109,6 +109,10 @@ async function searchAndAssignRider(rideId) {
     for (const rider of riders) {
       if (!rider.socket_id) continue;
 
+      const socket = socketMap.get(rider.socket_id);
+      if (!socket) continue;
+
+      // 🔵 Send ride request
       io.to(rider.socket_id).emit('ride:request', {
         rideId,
         origin: ride.trip_details.origin,
@@ -116,38 +120,29 @@ async function searchAndAssignRider(rideId) {
       });
 
       const result = await waitForRiderResponse(
-        io,
-        rider.socket_id,
-        rider.id,
+        socket,
         rideId,
         TIMEOUT
       );
 
       if (result === 'accepted') {
-        const t = await sequelize.transaction();
-        try {
-          await rider.update({ status: 'on-ride' }, { transaction: t });
 
-          await ride.update({
-            status: 'assigned',
-            rider_id: rider.id,
-            raider_details: {
-              id: rider.id,
-              name: rider.name,
-              phone: rider.phone,
-              vehicle: rider.vehicle
-            }
-          }, { transaction: t });
+        await rider.update({ status: 'on-ride' });
 
-          await t.commit();
+        await ride.update({
+          status: 'assigned',
+          rider_id: rider.id,
+          raider_details: {
+            id: rider.id,
+            name: rider.name,
+            phone: rider.phone,
+            vehicle: rider.vehicle
+          }
+        });
 
-          io.to(rider.socket_id).emit('ride:confirmed', ride);
-          return { success: true, ride, rider };
+        io.to(rider.socket_id).emit('ride:confirmed', ride);
 
-        } catch (e) {
-          await t.rollback();
-          throw e;
-        }
+        return { success: true, ride, rider };
       }
     }
 
@@ -159,7 +154,10 @@ async function searchAndAssignRider(rideId) {
   return { success: false, message: 'No rider accepted' };
 }
 
-function waitForRiderResponse(io, socketId, riderId, rideId, timeout = 10000) {
+/* =========================
+   WAIT FOR RIDER RESPONSE (FIXED)
+========================= */
+function waitForRiderResponse(socket, rideId, timeout = 10000) {
   return new Promise((resolve) => {
 
     const timer = setTimeout(() => {
@@ -183,12 +181,12 @@ function waitForRiderResponse(io, socketId, riderId, rideId, timeout = 10000) {
 
     function cleanup() {
       clearTimeout(timer);
-      socket.on('rider:accepted', onAccept);
-      socket.on('rider:rejected', onReject);
+      socket.off('rider:accepted', onAccept);
+      socket.off('rider:rejected', onReject);
     }
 
-    socket.on('rider:accepted', onAccept);
-    socket.on('rider:rejected', onReject);
+    socket.once('rider:accepted', onAccept);
+    socket.once('rider:rejected', onReject);
   });
 }
 
