@@ -1,215 +1,172 @@
-
-const Ride = require('../models/rideModel')
-const Rider = require('../models/ridersModel')
-
-const { Op } = require('sequelize');
-const { io } = require('../app');
-
+const Ride = require('../models/rideModel') 
+const Rider = require('../models/ridersModel') 
+const { Op } = require('sequelize'); 
+const { io } = require('../app'); 
 const {verifyUserJwtToken} = require('../utils/jwttoken')
 
-// Core logic — no req/res
+/* =========================
+   CREATE RIDE
+========================= */
 async function createRide(data) {
-  const { token, trip_details, service_details, raider_details } = data;
-  
-  
-  if (!trip_details || !service_details || !token) {
+  const { token, trip_details, service_details } = data;
+
+  if (!token || !trip_details || !service_details) {
     throw new Error('Missing required fields');
   }
 
-  const verified = await verifyUserJwtToken(token)
+  const verified = await verifyUserJwtToken(token);
+  if (!verified) throw new Error('Token verification failed');
 
-  if(!verified){
-    throw new Error('Failed to verify token');
-  }
+  const { user } = verified;
 
-  const { user, role } = verified;
- 
-
-  const status = 'searching';
-  const passcode = Math.floor(1000 + Math.random() * 9000);
-  const newRide = await Ride.create({
+  const ride = await Ride.create({
     userId: user.id,
     trip_details,
     service_details,
-    raider_details,
-    status,
-    otp: passcode
+    status: 'searching',
+    otp: Math.floor(1000 + Math.random() * 9000)
   });
 
-  return newRide;
+  return ride;
 }
 
-// Express handler wrapper for API route
 async function createRideHandler(req, res) {
   try {
     const ride = await createRide(req.body);
-    res.status(201).json({
-      message: 'Ride created successfully',
-      ride,
-    });
+    res.status(201).json({ message: 'Ride created', ride });
   } catch (err) {
-    console.error('Error creating ride:', err);
     res.status(500).json({ message: err.message });
   }
 }
 
-async function getRidesHandler (req, res) {
+/* =========================
+   GET RIDES (FIXED QUERY)
+========================= */
+async function getRidesHandler(req, res) {
   try {
-    const rides = await Ride.findOne({
-    id: 2 
-}); // Retrieve all rides from the database
-    res.status(200).json(rides);  // Send the rides as the response
-  } catch (error) {
-    console.error(error);  // Log the error
-    res.status(500).json({ message: 'Error retrieving rides', error });
+    const rides = await Ride.findAll();
+    res.status(200).json(rides);
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching rides' });
   }
 }
 
+/* =========================
+   CANCEL RIDE (SAFE)
+========================= */
 async function cancelRide(data) {
-  const  {token, id}  = data; 
+  const { token, id } = data;
+  if (!token || !id) throw new Error('Missing parameters');
 
-  if (!id || !token) {
-    throw new Error('some parameters missing in body');
-  }
+  const verified = await verifyUserJwtToken(token);
+  if (!verified) throw new Error('Token invalid');
 
-  // ✅ Correct way to find by id
-  const verified = await verifyUserJwtToken(token)
+  const { user, role } = verified;
 
-  if(!verified){
-    throw new Error('Token verification failed')
-  }
+  const where =
+    role === 'user'
+      ? { id, userId: user.id }
+      : { id };
 
-const {user, role} = verified
-if(role == 'user'){
-    const ride = await Ride.findOne({ where: { id: id, userId: user.id } });
-    if (!ride) {
-    throw new Error(`Ride with ID ${id} and ${user.id} not found`);
-  }
-  const updatedRide = await ride.update({ status: 'cancelled' });
+  const ride = await Ride.findOne({ where });
+  if (!ride) throw new Error('Ride not found');
 
-  return updatedRide;
-}
-
-if(role == 'admin' || role == 'manager'){
-    const ride = await Ride.findOne({ where: { id: id } });
-    if (!ride) {
-    throw new Error(`Ride with ID ${id} and ${user.id} not found`);
-  }
-  const updatedRide = await ride.update({ status: 'cancelled' });
-
-  return updatedRide;
-}
-  
+  await ride.update({ status: 'cancelled' });
+  return ride;
 }
 
 async function cancelRideHandler(req, res) {
-    try {
-        const ride = await cancelRide(req.body)
-        res.status(200).json({
-            message: 'Ride Cancelled',
-            ride
-        })
-    } catch(err) {
-        res.status(500).json({message: err.message})
-    }
+  try {
+    const ride = await cancelRide(req.body);
+    res.json({ message: 'Ride cancelled', ride });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 }
 
+/* =========================
+   SEARCH & ASSIGN RIDER
+========================= */
 async function searchAndAssignRider(rideId) {
   const ride = await Ride.findByPk(rideId);
   if (!ride) return { success: false, message: 'Ride not found' };
 
-  try {
-  const MAX_ATTEMPTS = 3; // Number of retry rounds
-  const TIMEOUT_PER_RIDER = 10000; // Wait time for each rider response
-  const DELAY_BETWEEN_ROUNDS = 2000; // Optional delay between rounds
+  const MAX_ATTEMPTS = 3;
+  const TIMEOUT = 10000;
+  const DELAY = 2000;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    console.log(`🔁 Attempt ${attempt}/${MAX_ATTEMPTS} to assign a rider...`);
 
-    const riders = await Rider.findAll({ where: { status: 'online' } });
-
-    if (!riders.length) {
-      console.log('⚠️ No online riders found.');
-      await new Promise((res) => setTimeout(res, DELAY_BETWEEN_ROUNDS));
-      continue;
+    await ride.reload();
+    if (ride.status === 'cancelled') {
+      return { success: false, message: 'Ride cancelled by user' };
     }
 
+    const riders = await Rider.findAll({
+      where: { status: 'online' }
+    });
+
     for (const rider of riders) {
-      console.log(`📨 Sending ride request to Rider ${rider.id}`);
+      if (!rider.socket_id) continue;
+
       io.to(rider.socket_id).emit('ride:request', {
         rideId,
         origin: ride.trip_details.origin,
-        destination: ride.trip_details.drop,
+        destination: ride.trip_details.drop
       });
 
-      // Wait for rider response
-      const accepted = await waitForRiderResponse(rider.id, rideId, TIMEOUT_PER_RIDER);
+      const result = await waitForRiderResponse(
+        io,
+        rider.socket_id,
+        rider.id,
+        rideId,
+        TIMEOUT
+      );
 
-      if (accepted === 'accepted') {
-        console.log(`✅ Rider ${rider.id} accepted the ride!`);
+      if (result === 'accepted') {
+        const t = await sequelize.transaction();
+        try {
+          await rider.update({ status: 'on-ride' }, { transaction: t });
 
-        await rider.update({ status: 'on-ride' });
-        await ride.update({
-          raider_details: rider,
-          status: 'assigned',
-          rider_id: rider.id,
-        });
+          await ride.update({
+            status: 'assigned',
+            rider_id: rider.id,
+            raider_details: {
+              id: rider.id,
+              name: rider.name,
+              phone: rider.phone,
+              vehicle: rider.vehicle
+            }
+          }, { transaction: t });
 
-        io.to(rider.socket_id).emit('ride:confirmed', ride);
-        return { success: true, ride, rider };
-      } else {
-        console.log(`⏱️ Rider ${rider.id} did not accept (response: ${accepted}).`);
+          await t.commit();
+
+          io.to(rider.socket_id).emit('ride:confirmed', ride);
+          return { success: true, ride, rider };
+
+        } catch (e) {
+          await t.rollback();
+          throw e;
+        }
       }
     }
 
-    // No riders accepted this round — wait before retrying
     if (attempt < MAX_ATTEMPTS) {
-      console.log(`🕒 No acceptance in round ${attempt}. Retrying in 2s...`);
-      await new Promise((res) => setTimeout(res, DELAY_BETWEEN_ROUNDS));
+      await new Promise(r => setTimeout(r, DELAY));
     }
   }
 
-  console.log('❌ No riders accepted after 3 attempts.');
-  return { success: false, message: 'No riders accepted the ride after 3 tries.' };
-
-} catch (error) {
-  console.error('🚨 Error in rider assignment:', error);
-  return { success: false, message: 'Error assigning rider.' };
+  return { success: false, message: 'No rider accepted' };
 }
 
-  
-}
-
-
-function waitForRiderResponse(riderId, rideId, timeout = 10000) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve('timeout'), timeout);
-
-    const onAccept = (data) => {
-      if (data.rideId === rideId && data.riderId === riderId) {
-        clearTimeout(timer);
-        io.off('rider:accepted', onAccept);
-        io.off('rider:rejected', onReject);
-        resolve('accepted');
-      }
-    };
-
-    const onReject = (data) => {
-      if (data.rideId === rideId && data.riderId === riderId) {
-        clearTimeout(timer);
-        io.off('rider:accepted', onAccept);
-        io.off('rider:rejected', onReject);
-        resolve('rejected');
-      }
-    };
-
-    io.on('rider:accepted', onAccept);
-    io.on('rider:rejected', onReject);
-  });
-}
-
-
-
-
-
-module.exports = { createRide, createRideHandler, getRidesHandler,cancelRide, cancelRideHandler, searchAndAssignRider };
+/* =========================
+   EXPORTS
+========================= */
+module.exports = {
+  createRide,
+  createRideHandler,
+  getRidesHandler,
+  cancelRide,
+  cancelRideHandler,
+  searchAndAssignRider
+};
