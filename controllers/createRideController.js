@@ -183,12 +183,12 @@ function waitForRiderResponse(io, socketId, riderId, rideId, timeout = 10000) {
 
     function cleanup() {
       clearTimeout(timer);
-      io.to(socketId).off('rider:accepted', onAccept);
-      io.to(socketId).off('rider:rejected', onReject);
+      socket.on('rider:accepted', onAccept);
+      socket.on('rider:rejected', onReject);
     }
 
-    io.to(socketId).on('rider:accepted', onAccept);
-    io.to(socketId).on('rider:rejected', onReject);
+    socket.on('rider:accepted', onAccept);
+    socket.on('rider:rejected', onReject);
   });
 }
 
