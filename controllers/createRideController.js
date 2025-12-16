@@ -159,6 +159,39 @@ async function searchAndAssignRider(rideId) {
   return { success: false, message: 'No rider accepted' };
 }
 
+function waitForRiderResponse(io, socketId, riderId, rideId, timeout = 10000) {
+  return new Promise((resolve) => {
+
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve('timeout');
+    }, timeout);
+
+    function onAccept(data) {
+      if (data.rideId === rideId) {
+        cleanup();
+        resolve('accepted');
+      }
+    }
+
+    function onReject(data) {
+      if (data.rideId === rideId) {
+        cleanup();
+        resolve('rejected');
+      }
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      io.to(socketId).off('rider:accepted', onAccept);
+      io.to(socketId).off('rider:rejected', onReject);
+    }
+
+    io.to(socketId).on('rider:accepted', onAccept);
+    io.to(socketId).on('rider:rejected', onReject);
+  });
+}
+
 /* =========================
    EXPORTS
 ========================= */
