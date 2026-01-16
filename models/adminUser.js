@@ -62,7 +62,7 @@ const AdminUser = sequelize.define('AdminUser', {
     allowNull: false,
   }
 }, {
-  tableName: 'AdminUser_adminuser',
+  tableName: 'AdminUser',
   timestamps: false, // or true if you want createdAt/updatedAt
 });
 

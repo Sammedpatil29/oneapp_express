@@ -2,7 +2,8 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../db");
 const User = require("./customUserModel");
-const Rider = require("./ridersModel")
+const Rider = require("./ridersModel");
+
 const Ride = sequelize.define(
   "Ride",
   {
@@ -24,20 +25,22 @@ const Ride = sequelize.define(
     },
     otp: {
       type: DataTypes.STRING,
-      allowNull: true
+      allowNull: true,
     },
 
-    // ✅ Foreign key column
+    // ✅ User Foreign Key (assuming User ID is Integer)
     userId: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: 'user_custonuser', // points to the users table
-        key: "id",
-      },
-      onDelete: "CASCADE", // optional — delete rides if user is deleted
+      onDelete: "CASCADE",
       onUpdate: "CASCADE",
     },
+
+    // ✅ NEW: Explicit Rider Foreign Key (Must be UUID to match Rider table)
+    riderId: {
+      type: DataTypes.UUID, 
+      allowNull: true, // Allow null initially (e.g. before a rider accepts)
+    }
   },
   {
     tableName: "rides",
@@ -45,7 +48,13 @@ const Ride = sequelize.define(
   }
 );
 
-Rider.hasMany(Ride, { foreignKey: "id" });
-Ride.belongsTo(Rider, { foreignKey: "id" });
+// ✅ Fix: Use the new 'riderId' column for the relationship
+// (Do NOT use 'id', that is the primary key of this table)
+Rider.hasMany(Ride, { foreignKey: "riderId" });
+Ride.belongsTo(Rider, { foreignKey: "riderId" });
+
+// Optional: It is good practice to define the User relationship here too
+User.hasMany(Ride, { foreignKey: "userId" });
+Ride.belongsTo(User, { foreignKey: "userId" });
 
 module.exports = Ride;
