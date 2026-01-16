@@ -50,7 +50,7 @@ app.use(express.json());
 
 // ===== Sequelize sync =====
 sequelize
-  .sync({ force: false })
+  .sync({ alter: false })
   .then(() => console.log('✅ Models are synced with the database.'))
   .catch((err) => console.error('❌ Error syncing models:', err));
 
