@@ -35,6 +35,7 @@ const io = new Server(server, {
 
 module.exports.io = io;
 const rideRoutes = require('./Routes/rideRoutes');
+const authRoutes = require('./Routes/authRoutes');
 const { createRide } = require('./controllers/createRideController');
 const { cancelRide } = require('./controllers/createRideController');
 const { searchAndAssignRider } = require('./controllers/createRideController');
@@ -56,6 +57,7 @@ sequelize
 
 // ===== Routes =====
 app.use(rideRoutes);
+app.use(authRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {
