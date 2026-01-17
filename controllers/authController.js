@@ -170,4 +170,51 @@ async function getUser(req, res) {
   }
 }
 
-module.exports = { verifyToken, login, register, getUser };
+/**
+ * 5. Update User Data
+ * PATCH /user
+ * Updates first_name, last_name, and email for the logged-in user.
+ */
+async function updateUser(req, res) {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    verify(token, JWT_SECRET, async (err, decoded) => {
+      if (err) {
+        return res.status(401).json({ success: false, message: 'Token expired or invalid' });
+      }
+
+      try {
+        const user = await User.findByPk(decoded.id);
+        if (!user) {
+          return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const { first_name, last_name, email } = req.body;
+
+        if (first_name !== undefined) user.first_name = first_name;
+        if (last_name !== undefined) user.last_name = last_name;
+        if (email !== undefined) user.email = email;
+
+        await user.save();
+
+        return res.json({ success: true, message: 'Profile updated successfully', user });
+      } catch (dbError) {
+        console.error('Update User DB Error:', dbError);
+        if (dbError.name === 'SequelizeUniqueConstraintError') {
+          return res.status(409).json({ success: false, message: 'Email already in use' });
+        }
+        return res.status(500).json({ success: false, message: 'Database error' });
+      }
+    });
+  } catch (error) {
+    console.error('Update User Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+}
+
+module.exports = { verifyToken, login, register, getUser, updateUser };
