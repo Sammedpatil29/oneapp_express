@@ -139,4 +139,35 @@ async function register(req, res) {
   }
 }
 
-module.exports = { verifyToken, login, register };
+/**
+ * 4. Get User Data
+ * GET /user
+ * Returns user details based on the provided token.
+ */
+async function getUser(req, res) {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    verify(token, JWT_SECRET, async (err, decoded) => {
+      if (err) {
+        return res.status(401).json({ success: false, message: 'Token expired or invalid' });
+      }
+
+      const user = await User.findByPk(decoded.id);
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+
+      return res.json({ success: true, user });
+    });
+  } catch (error) {
+    console.error('Get User Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+}
+
+module.exports = { verifyToken, login, register, getUser };

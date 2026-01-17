@@ -1,7 +1,7 @@
 // routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
-const { verifyToken, login, register } = require('../controllers/authController.js');
+const { verifyToken, login, register, getUser } = require('../controllers/authController.js');
 
 // 1. Verify Token (Call this on app startup)
 router.get('/verify-token', verifyToken);
@@ -11,5 +11,8 @@ router.post('/login', login);
 
 // 3. Register / Create User (Call this if /login returned isNewUser: true)
 router.post('/register', register);
+
+// 4. Get User Data (Fetch user profile using token)
+router.get('/user', getUser);
 
 module.exports = router;
