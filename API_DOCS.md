@@ -50,6 +50,20 @@ Creates a new user and returns a token.
     *   `201 Created`: `{ success: true, message: "User created successfully", token: "...", user: { ... } }`
     *   `409 Conflict`: User already exists.
 
+### Update FCM Token
+Updates the Firebase Cloud Messaging token for push notifications.
+
+*   **URL:** `/fcm-token`
+*   **Method:** `PATCH`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "fcm_token": "new_token_string"
+    }
+    ```
+
 ---
 
 ## Home

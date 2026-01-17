@@ -217,4 +217,49 @@ async function updateUser(req, res) {
   }
 }
 
-module.exports = { verifyToken, login, register, getUser, updateUser };
+/**
+ * 6. Update FCM Token
+ * PATCH /fcm-token
+ * Updates the FCM token for the logged-in user.
+ */
+async function updateFcmToken(req, res) {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    verify(token, JWT_SECRET, async (err, decoded) => {
+      if (err) {
+        return res.status(401).json({ success: false, message: 'Token expired or invalid' });
+      }
+
+      try {
+        const user = await User.findByPk(decoded.id);
+        if (!user) {
+          return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const { fcm_token } = req.body;
+
+        if (!fcm_token) {
+          return res.status(400).json({ success: false, message: 'FCM Token is required' });
+        }
+
+        user.fcm_token = fcm_token;
+        await user.save();
+
+        return res.json({ success: true, message: 'FCM Token updated successfully' });
+      } catch (dbError) {
+        console.error('Update FCM Token DB Error:', dbError);
+        return res.status(500).json({ success: false, message: 'Database error' });
+      }
+    });
+  } catch (error) {
+    console.error('Update FCM Token Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+}
+
+module.exports = { verifyToken, login, register, getUser, updateUser, updateFcmToken };
