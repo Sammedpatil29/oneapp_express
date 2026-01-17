@@ -36,10 +36,13 @@ const io = new Server(server, {
 module.exports.io = io;
 const rideRoutes = require('./Routes/rideRoutes');
 const authRoutes = require('./Routes/authRoutes');
+const serviceRoutes = require('./Routes/serviceRoutes');
+const addressRoutes = require('./Routes/addressRoutes');
+const bannerRoutes = require('./Routes/bannerRoutes');
+const homeRoutes = require('./Routes/homeRoutes');
 const { createRide } = require('./controllers/createRideController');
 const { cancelRide } = require('./controllers/createRideController');
 const { searchAndAssignRider } = require('./controllers/createRideController');
-const { syncRider } = require('./controllers/riderController');
 const Rider = require('./models/ridersModel');
 const sequelize = require('./db');
 
@@ -51,13 +54,17 @@ app.use(express.json());
 
 // ===== Sequelize sync =====
 sequelize
-  .sync({ alter: false })
+  .sync({ alter: true })
   .then(() => console.log('✅ Models are synced with the database.'))
   .catch((err) => console.error('❌ Error syncing models:', err));
 
 // ===== Routes =====
 app.use(rideRoutes);
 app.use(authRoutes);
+app.use(serviceRoutes);
+app.use('/api/addresses', addressRoutes);
+app.use('/api/banners', bannerRoutes);
+app.use('/api/home', homeRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {
