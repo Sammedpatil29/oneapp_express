@@ -202,6 +202,56 @@ Fetches aggregated data for the home screen: active banners, user addresses, and
 
 ---
 
+## Events
+
+### Create Event
+*   **URL:** `/api/events`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "title": "Music Festival",
+      "description": "An amazing music festival.",
+      "location": { "lat": 40.7128, "lng": -74.0060, "address": "Central Park" },
+      "date": "2023-12-31",
+      "time": "18:00:00",
+      "duration": "4 hours",
+      "category": ["Music", "Festival"],
+      "tags": ["live", "band"],
+      "organizer": "City Events",
+      "contact": "555-0123",
+      "email": "info@cityevents.com",
+      "ticketcount": 500,
+      "is_active": true,
+      "ticketoptions": { "VIP": 100, "General": 50 },
+      "isFree": false,
+      "ticketPrice": 50.00,
+      "imageUrl": "https://example.com/event.jpg",
+      "registrationUrl": "https://example.com/register",
+      "recurrence": "Annual",
+      "user_id": 1
+    }
+    ```
+
+### Get All Events
+*   **URL:** `/api/events`
+*   **Method:** `GET`
+
+### Get Event by ID
+*   **URL:** `/api/events/:id`
+*   **Method:** `GET`
+
+### Update Event
+*   **URL:** `/api/events/:id`
+*   **Method:** `PUT`
+*   **Body:** Event fields to update.
+
+### Delete Event
+*   **URL:** `/api/events/:id`
+*   **Method:** `DELETE`
+
+---
+
 ## Rides & Riders
 
 ### Create Ride (User)
