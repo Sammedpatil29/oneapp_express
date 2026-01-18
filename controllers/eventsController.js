@@ -142,7 +142,8 @@ exports.getBookingDetails = async (req, res) => {
       event: {
         eventName: event.title,
         eventDate: event.date,
-        ticketOptions: ticketOptions
+        ticketOptions: ticketOptions,
+        maxSelection: event.ticketcount
       },
       booking: {
         selectedClass: selectedOption.class,
