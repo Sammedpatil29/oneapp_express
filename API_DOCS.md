@@ -233,6 +233,31 @@ Fetches aggregated data for the home screen: active banners, user addresses, and
     }
     ```
 
+### Get Booking Details
+Calculates price and returns user/event details for booking confirmation.
+
+*   **URL:** `/api/events/booking-details`
+*   **Method:** `POST`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "eventId": 1,
+      "class": "gold",   // Optional: Ticket class (defaults to first available)
+      "tickets": 2       // Optional: Number of tickets (defaults to 1)
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "user": { "userName": "...", "phone": "...", "email": "..." },
+      "event": { "eventName": "...", "eventDate": "...", "ticketOptions": [...] },
+      "booking": { "selectedClass": "gold", "ticketsCount": 2, "basePrice": "...", "charges": "...", "totalPrice": "..." }
+    }
+    ```
+
 ### Get All Events
 *   **URL:** `/api/events`
 *   **Method:** `GET`
