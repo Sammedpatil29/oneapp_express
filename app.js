@@ -15,29 +15,24 @@ const pool = require('./db'); // Only if you actually use it
 const PORT = 3000;
 const app = express();
 
-// Define allowed origins and CORS options centrally
-const allowedOrigins = [
-  "https://localhost",              // your local Ionic/React/Vue app
-  "https://hv0ft3xh-8100.inc1.devtunnels.ms",              // your local Ionic/React/Vue app
-  "http://localhost",              // your local Ionic/React/Vue app
-  "https://your-production-site.com",
-  "http://localhost:8100",
-  "http://localhost:8200",
-  "https://localhost:8100",
-  'https://pintu-minutes.app/' // optional - your deployed frontend
-];
-
-const corsOptions = {
-  origin: allowedOrigins,
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true, // if you use cookies/auth
-};
-
 // ✅ Create HTTP server and attach Socket.IO properly
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: corsOptions,
+  cors: {
+    origin: [
+      "https://localhost",              // your local Ionic/React/Vue app
+      "https://hv0ft3xh-8100.inc1.devtunnels.ms",              // your local Ionic/React/Vue app
+      "http://localhost",              // your local Ionic/React/Vue app
+      "https://your-production-site.com",
+      "http://localhost:8100",
+      "http://localhost:8200",
+      "https://localhost:8100",
+      'https://pintu-minutes.app/' // optional - your deployed frontend
+    ],
+    methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true, // if you use cookies/auth
+  },
 });
 
 module.exports.io = io;
@@ -55,14 +50,9 @@ const sequelize = require('./db');
 
 
 // ===== Middleware =====
-app.use(cors(corsOptions));
+app.use(cors());
+app.use(bodyParser.json());
 app.use(express.json());
-
-// Debugging: Log incoming requests to verify path on server
-app.use((req, res, next) => {
-  console.log(`[Server Request] ${req.method} ${req.url} | Host: ${req.headers.host}`);
-  next();
-});
 
 // ===== Sequelize sync =====
 sequelize
@@ -71,23 +61,16 @@ sequelize
   .catch((err) => console.error('❌ Error syncing models:', err));
 
 // ===== Routes =====
-// Mount specific API routes first to prevent conflicts with root routes
-app.use('/api/addresses', addressRoutes);
-app.use('/api/banners', bannerRoutes);
-app.use('/api/home', homeRoutes);
 app.use(rideRoutes);
 app.use(authRoutes);
 app.use(serviceRoutes);
+app.use('/api/addresses', addressRoutes);
+app.use('/api/banners', bannerRoutes);
+app.use('/api/home', homeRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {
   res.send('✅ Express + Socket.IO server is running!');
-});
-
-// 404 Handler (Must be after all other routes)
-app.use((req, res) => {
-  console.log(`⚠️ [404] Route not found: ${req.method} ${req.url}`);
-  res.status(404).json({ error: 'Route not found', path: req.url });
 });
 
 // ===== Socket.IO events =====
