@@ -59,6 +59,12 @@ app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(express.json());
 
+// Debugging: Log incoming requests to verify path on server
+app.use((req, res, next) => {
+  console.log(`[Server Request] ${req.method} ${req.url}`);
+  next();
+});
+
 // ===== Sequelize sync =====
 sequelize
   .sync({ alter: true })
@@ -66,12 +72,13 @@ sequelize
   .catch((err) => console.error('❌ Error syncing models:', err));
 
 // ===== Routes =====
-app.use(rideRoutes);
-app.use(authRoutes);
-app.use(serviceRoutes);
+// Mount specific API routes first to prevent conflicts with root routes
 app.use('/api/addresses', addressRoutes);
 app.use('/api/banners', bannerRoutes);
 app.use('/api/home', homeRoutes);
+app.use(rideRoutes);
+app.use(authRoutes);
+app.use(serviceRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {
