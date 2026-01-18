@@ -7,14 +7,9 @@ const Address = require('../models/Address');
  */
 const createAddress = async (req, res) => {
   try {
-    // Ensure user_id is provided (either from body or auth middleware)
-    const { user_id, lat, lng, address, landmark, label, house_no } = req.body;
+    const user_id = req.user.id;
 
-    if (!user_id) {
-      return res.status(400).json({ success: false, message: 'User ID is required' });
-    }
-
-    const newAddress = await Address.create(req.body);
+    const newAddress = await Address.create({ ...req.body, user_id });
     
     return res.status(201).json({ 
       success: true, 
@@ -28,12 +23,12 @@ const createAddress = async (req, res) => {
 };
 
 /**
- * 2. Get Addresses by User ID
- * GET /api/addresses/user/:userId
+ * 2. Get Addresses for Logged-in User
+ * GET /api/addresses
  */
-const getAddressesByUser = async (req, res) => {
+const getAddresses = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.id;
 
     const addresses = await Address.findAll({
       where: { user_id: userId },
@@ -58,13 +53,14 @@ const getAddressesByUser = async (req, res) => {
 const updateAddress = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
 
     const [updated] = await Address.update(req.body, {
-      where: { id: id }
+      where: { id: id, user_id: userId }
     });
 
     if (updated) {
-      const updatedAddress = await Address.findByPk(id);
+      const updatedAddress = await Address.findOne({ where: { id, user_id: userId } });
       return res.json({ 
         success: true, 
         message: 'Address updated successfully', 
@@ -86,9 +82,10 @@ const updateAddress = async (req, res) => {
 const deleteAddress = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
 
     const deleted = await Address.destroy({
-      where: { id: id }
+      where: { id: id, user_id: userId }
     });
 
     if (deleted) {
@@ -104,7 +101,7 @@ const deleteAddress = async (req, res) => {
 
 module.exports = {
   createAddress,
-  getAddressesByUser,
+  getAddresses,
   updateAddress,
   deleteAddress
 };

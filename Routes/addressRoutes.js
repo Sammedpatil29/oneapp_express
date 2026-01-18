@@ -2,25 +2,26 @@
 const express = require('express');
 const { 
   createAddress, 
-  getAddressesByUser, 
+  getAddresses, 
   updateAddress, 
   deleteAddress 
 } = require('../controllers/addressController');
+const verifyToken = require('./authMiddleware');
 
 const router = express.Router();
 
 // Route: /api/addresses
 
 // Add new address
-router.post('/', createAddress);
+router.post('/', verifyToken, createAddress);
 
-// Get all addresses for a specific user
-router.get('/user/:userId', getAddressesByUser);
+// Get all addresses for the logged-in user
+router.get('/', verifyToken, getAddresses);
 
 // Update specific address
-router.put('/:id', updateAddress);
+router.put('/:id', verifyToken, updateAddress);
 
 // Delete specific address
-router.delete('/:id', deleteAddress);
+router.delete('/:id', verifyToken, deleteAddress);
 
 module.exports = router;
