@@ -43,6 +43,7 @@ const addressRoutes = require('./Routes/addressRoutes');
 const bannerRoutes = require('./Routes/bannerRoutes');
 const homeRoutes = require('./Routes/homeRoutes');
 const eventsRoutes = require('./Routes/eventsRoutes');
+const paymentRoutes = require('./Routes/paymentRoutes');
 const { createRide } = require('./controllers/createRideController');
 const { cancelRide } = require('./controllers/createRideController');
 const { searchAndAssignRider } = require('./controllers/createRideController');
@@ -69,6 +70,7 @@ app.use('/api/addresses', addressRoutes);
 app.use('/api/banners', bannerRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/events', eventsRoutes);
+app.use('/api/payment', paymentRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {

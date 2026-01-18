@@ -294,6 +294,56 @@ Checks if the requested number of tickets are available for a specific class.
 
 ---
 
+## Payments
+
+### Create Payment Order
+Creates a Razorpay order and an internal booking record.
+
+*   **URL:** `/api/payment/create-order`
+*   **Method:** `POST`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "eventId": 1,
+      "tickets": 2,
+      "class": "gold"
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "internal_order_id": 15,
+      "razorpay_order_id": "order_MzL8...",
+      "amount": 53500,
+      "currency": "INR"
+    }
+    ```
+
+### Verify Payment Status
+Checks the status of a booking. If pending, it queries Razorpay to see if payment was captured.
+
+*   **URL:** `/api/payment/verify-status`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "orderId": 15
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "status": "paid",
+      "booking": { ... }
+    }
+    ```
+
+---
+
 ## Rides & Riders
 
 ### Create Ride (User)
