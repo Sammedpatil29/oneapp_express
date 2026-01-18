@@ -29,7 +29,8 @@ const io = new Server(server, {
       "https://localhost:8100",
       'https://pintu-minutes.app/' // optional - your deployed frontend
     ],
-    methods: ["GET", "POST"],
+    methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true, // if you use cookies/auth
   },
 });
