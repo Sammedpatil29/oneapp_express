@@ -159,3 +159,69 @@ exports.getBookingDetails = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// Check ticket availability
+exports.checkAvailability = async (req, res) => {
+  try {
+    const { eventId, class: ticketClass, tickets } = req.body;
+    const requestedTickets = tickets ? parseInt(tickets) : 1;
+
+    if (!eventId) {
+      return res.status(400).json({ success: false, message: 'Event ID is required' });
+    }
+
+    const event = await Event.findByPk(eventId);
+    if (!event) {
+      return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+
+    if (!event.is_active) {
+      return res.status(400).json({ success: false, message: 'Event is not active' });
+    }
+
+    // Handle Ticket Options
+    let ticketOptions = event.ticketoptions;
+    if (!Array.isArray(ticketOptions)) {
+      ticketOptions = ticketOptions ? [ticketOptions] : [];
+    }
+
+    let selectedOption = null;
+    if (ticketClass) {
+      selectedOption = ticketOptions.find(opt => opt.class === ticketClass);
+    } else if (ticketOptions.length > 0) {
+      // Default to first option if class not specified
+      selectedOption = ticketOptions[0];
+    }
+
+    if (!selectedOption) {
+      return res.status(400).json({ success: false, message: 'Ticket class not found' });
+    }
+console.log(selectedOption)
+    // Check availability (handling "available tickets" key as per prompt description)
+    const available = selectedOption['tickets'] !== undefined ? selectedOption['tickets'] :
+                      selectedOption.available !== undefined ? selectedOption.available : 0;
+
+    if (parseInt(available) >= requestedTickets) {
+      res.status(200).json({
+        success: true,
+        message: 'Tickets available',
+        data: {
+          eventId: event.id,
+          class: selectedOption.class,
+          available: parseInt(available),
+          requested: requestedTickets,
+          price: selectedOption.price
+        }
+      });
+    } else {
+      res.status(200).json({
+        success: false,
+        message: `Only ${available} tickets available for ${selectedOption.class || 'this class'}`
+      });
+    }
+
+  } catch (error) {
+    console.error('Error checking ticket availability:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

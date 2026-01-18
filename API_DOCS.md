@@ -258,6 +258,23 @@ Calculates price and returns user/event details for booking confirmation.
     }
     ```
 
+### Check Ticket Availability
+Checks if the requested number of tickets are available for a specific class.
+
+*   **URL:** `/api/events/check-availability`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "eventId": 1,
+      "class": "gold",   // Optional: Defaults to first available option
+      "tickets": 2       // Optional: Defaults to 1
+    }
+    ```
+*   **Response:**
+    *   `200 OK` (Available): `{ "success": true, "message": "Tickets available", "data": { ... } }`
+    *   `200 OK` (Unavailable): `{ "success": false, "message": "Only X tickets available..." }`
+
 ### Get All Events
 *   **URL:** `/api/events`
 *   **Method:** `GET`
