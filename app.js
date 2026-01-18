@@ -15,24 +15,29 @@ const pool = require('./db'); // Only if you actually use it
 const PORT = 3000;
 const app = express();
 
+// Define allowed origins and CORS options centrally
+const allowedOrigins = [
+  "https://localhost",              // your local Ionic/React/Vue app
+  "https://hv0ft3xh-8100.inc1.devtunnels.ms",              // your local Ionic/React/Vue app
+  "http://localhost",              // your local Ionic/React/Vue app
+  "https://your-production-site.com",
+  "http://localhost:8100",
+  "http://localhost:8200",
+  "https://localhost:8100",
+  'https://pintu-minutes.app/' // optional - your deployed frontend
+];
+
+const corsOptions = {
+  origin: allowedOrigins,
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true, // if you use cookies/auth
+};
+
 // ✅ Create HTTP server and attach Socket.IO properly
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: [
-      "https://localhost",              // your local Ionic/React/Vue app
-      "https://hv0ft3xh-8100.inc1.devtunnels.ms",              // your local Ionic/React/Vue app
-      "http://localhost",              // your local Ionic/React/Vue app
-      "https://your-production-site.com",
-      "http://localhost:8100",
-      "http://localhost:8200",
-      "https://localhost:8100",
-      'https://pintu-minutes.app/' // optional - your deployed frontend
-    ],
-    methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true, // if you use cookies/auth
-  },
+  cors: corsOptions,
 });
 
 module.exports.io = io;
@@ -50,7 +55,7 @@ const sequelize = require('./db');
 
 
 // ===== Middleware =====
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(express.json());
 
