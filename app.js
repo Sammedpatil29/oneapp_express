@@ -26,7 +26,8 @@ const io = new Server(server, {
       "https://your-production-site.com",
       "http://localhost:8100",
       "http://localhost:8200",
-      "https://localhost:8100" // optional - your deployed frontend
+      "https://localhost:8100",
+      'https://pintu-minutes.app/' // optional - your deployed frontend
     ],
     methods: ["GET", "POST"],
     credentials: true, // if you use cookies/auth
