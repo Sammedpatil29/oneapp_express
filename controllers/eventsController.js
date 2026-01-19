@@ -49,7 +49,7 @@ exports.getOrderDetails = async (req, res) => {
 
     const responseData = {
       orderId: booking.id,
-      status: booking.status === 'paid' ? 'Confirmed' : booking.status,
+      status: booking.status,
       customerName: user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : 'Guest',
       ticketCount: booking.ticket_count,
       totalPrice: Math.round(basePrice),

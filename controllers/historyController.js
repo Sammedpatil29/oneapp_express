@@ -28,7 +28,7 @@ exports.getHistory = async (req, res) => {
       const bookings = await Booking.findAll({
         where: { 
           user_id: userId,
-          status: { [Op.ne]: 'pending' }
+          status: { [Op.ne]: 'pending', [Op.ne]: 'failed' }
         },
         include: [{
           model: Event,
