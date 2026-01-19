@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../db');
+const Event = require('./eventsModel');
 
 const Booking = sequelize.define('Event Booking', {
   id: {
@@ -45,5 +46,8 @@ const Booking = sequelize.define('Event Booking', {
   tableName: 'Eevent_bookings',
   timestamps: true,
 });
+
+// Establish relationship to fetch Event details (like title)
+Booking.belongsTo(Event, { foreignKey: 'event_id' });
 
 module.exports = Booking;

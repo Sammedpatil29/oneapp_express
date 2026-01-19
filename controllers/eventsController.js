@@ -60,7 +60,7 @@ exports.getOrderDetails = async (req, res) => {
         date: event.date,
         time: event.time,
         duration: event.duration,
-        location: loc.address || '',
+        location: loc.location || '',
         lat: loc.lat,
         lng: loc.lng,
         imageUrl: event.imageUrl

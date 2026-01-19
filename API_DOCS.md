@@ -380,6 +380,41 @@ Checks the status of a booking. If pending, it queries Razorpay to see if paymen
 
 ---
 
+## History
+
+### Get Order History
+Fetches the order history for the logged-in user.
+
+*   **URL:** `/api/history`
+*   **Method:** `POST`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "type": "event" // or "all"
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "id": 55,
+          "type": "event",
+          "title": "New year event 2026",
+          "created_at": "2026-01-11T15:04:11.256604+05:30",
+          "status": "paid",
+          "finalCost": "100.00",
+          "user": 3
+        }
+      ]
+    }
+    ```
+
+---
+
 ## Rides & Riders
 
 ### Create Ride (User)
