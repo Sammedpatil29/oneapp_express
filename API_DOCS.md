@@ -314,6 +314,27 @@ Fetches confirmed order details including price breakdown and event info.
 ### Get All Events
 *   **URL:** `/api/events`
 *   **Method:** `GET`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>` (Optional - to fetch booked events)
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "id": 1,
+          "title": "Music Festival",
+          "is_active": true
+        }
+      ],
+      "bookedEvents": [
+        {
+          "id": 5,
+          "title": "My Upcoming Concert"
+        }
+      ]
+    }
+    ```
 
 ### Get Event by ID
 *   **URL:** `/api/events/:id`
@@ -383,7 +404,7 @@ Checks the status of a booking. If pending, it queries Razorpay to see if paymen
 ## History
 
 ### Get Order History
-Fetches the order history for the logged-in user.
+Fetches the order history (excluding pending orders) for the logged-in user.
 
 *   **URL:** `/api/history`
 *   **Method:** `POST`

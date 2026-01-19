@@ -2,6 +2,7 @@ const Event = require('../models/eventsModel');
 const User = require('../models/customUserModel');
 const Booking = require('../models/bookingModel');
 const jwt = require('jsonwebtoken');
+const { Op } = require('sequelize');
 
 // Create a new event
 exports.createEvent = async (req, res) => {
@@ -78,8 +79,41 @@ exports.getOrderDetails = async (req, res) => {
 // Get all events
 exports.getAllEvents = async (req, res) => {
   try {
-    const events = await Event.findAll();
-    res.status(200).json({ success: true, data: events });
+    const events = await Event.findAll({
+      where: { is_active: true }
+    });
+
+    let bookedEvents = [];
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const bookings = await Booking.findAll({
+          where: { 
+            user_id: decoded.id,
+            status: 'paid'
+          },
+          include: [{
+            model: Event,
+            where: {
+              date: { [Op.gte]: today }
+            },
+            required: true
+          }]
+        });
+
+        bookedEvents = bookings.map(b => b.Event);
+      } catch (e) {
+        // Ignore token errors (e.g. not logged in or expired), just return empty bookedEvents
+      }
+    }
+
+    res.status(200).json({ success: true, data: events, bookedEvents });
   } catch (error) {
     console.error('Error fetching events:', error);
     res.status(500).json({ success: false, message: error.message });
