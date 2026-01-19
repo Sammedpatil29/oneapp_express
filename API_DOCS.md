@@ -277,6 +277,7 @@ Checks if the requested number of tickets are available for a specific class.
 
 ### Get Order Details
 Fetches confirmed order details including price breakdown and event info.
+If the order is cancelled, it includes refund details.
 
 *   **URL:** `/api/events/order-details`
 *   **Method:** `POST`
@@ -307,6 +308,58 @@ Fetches confirmed order details including price breakdown and event info.
         "lat": 15.603,
         "lng": 73.743,
         "imageUrl": "https://..."
+      },
+      "refundDetails": {
+        "refundId": "rfnd_...",
+        "refundAmount": "1000.00",
+        "deductionAmount": "250.00"
+      }
+    }
+    ```
+
+### Cancel Booking
+Cancels a booking, restores ticket inventory, and initiates a refund based on the cancellation policy:
+*   **< 24 Hours before event:** 50% deduction
+*   **24-72 Hours before event:** 30% deduction
+*   **> 72 Hours before event:** 10% deduction
+*   **Event Started/Ended:** Cancellation not allowed
+
+*   **URL:** `/api/events/cancel-booking`
+*   **Method:** `POST`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "orderId": 15
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "message": "Booking cancelled successfully",
+      "refundAmount": "1000.00",
+      "deductionAmount": "250.00",
+      "refundId": "rfnd_..."
+    }
+    ```
+
+### Cancel Event (Admin)
+Cancels an event, marks it as inactive, and initiates full refunds for all paid bookings.
+
+*   **URL:** `/api/events/cancel/:id`
+*   **Method:** `POST`
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "message": "Event cancelled and refunds processed",
+      "summary": {
+        "totalBookings": 5,
+        "refunded": 5,
+        "failed": 0,
+        "errors": []
       }
     }
     ```

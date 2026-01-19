@@ -1,8 +1,15 @@
 const Event = require('../models/eventsModel');
 const User = require('../models/customUserModel');
 const Booking = require('../models/bookingModel');
+const Razorpay = require('razorpay');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
+
+// Initialize Razorpay (Ensure keys match your .env or paymentController)
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_S5RLYqr6y2I6xs',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || 'q2lFxfOyVyAkD1GQMbitqNre',
+});
 
 // Create a new event
 exports.createEvent = async (req, res) => {
@@ -11,6 +18,119 @@ exports.createEvent = async (req, res) => {
     res.status(201).json({ success: true, data: event });
   } catch (error) {
     console.error('Error creating event:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Cancel Booking & Refund
+exports.cancelBooking = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    
+    let userId;
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+      userId = decoded.id;
+    } catch (e) {
+      return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+    
+    const booking = await Booking.findByPk(orderId);
+    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+console.log('Cancelling booking for user ID:', booking.user_id, 'Order ID:', userId);
+    if (booking.user_id != userId) {
+      return res.status(403).json({ success: false, message: 'You are not authorized to cancel this booking' });
+    }
+
+    if (booking.status !== 'paid') {
+      return res.status(400).json({ success: false, message: `Cannot cancel booking with status: ${booking.status}` });
+    }
+
+    const event = await Event.findByPk(booking.event_id);
+    if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
+
+    // --- Cancellation Policy Logic ---
+    const totalAmount = parseFloat(booking.total_amount);
+    
+    // Calculate time difference
+    const eventDateTime = new Date(`${event.date}T${event.time}`);
+    const now = new Date();
+    const diffInMs = eventDateTime - now;
+    const diffInHours = diffInMs / (1000 * 60 * 60);
+
+    let deductionPercentage = 0;
+
+    if (diffInMs < 0) {
+      return res.status(400).json({ success: false, message: 'Cannot cancel booking: Event has already started or ended.' });
+    } else if (diffInHours < 24) {
+      deductionPercentage = 0.50; // 50% deduction if < 24 hours
+    } else if (diffInHours < 72) {
+      deductionPercentage = 0.30; // 30% deduction if < 3 days
+    } else {
+      deductionPercentage = 0.10; // 10% deduction otherwise
+    }
+
+    const deductionAmount = totalAmount * deductionPercentage;
+    const refundAmount = totalAmount - deductionAmount;
+    const refundAmountInPaise = Math.round(refundAmount * 100);
+
+    // 1. Initiate Refund via Razorpay
+    let refundData = null;
+    if (booking.razorpay_payment_id && refundAmountInPaise > 0) {
+      try {
+        refundData = await razorpay.payments.refund(booking.razorpay_payment_id, {
+          amount: refundAmountInPaise,
+          speed: 'normal',
+          notes: {
+            reason: 'User requested cancellation',
+            booking_id: booking.id
+          }
+        });
+      } catch (rzpError) {
+        console.error('Razorpay Refund Error:', rzpError);
+        return res.status(500).json({ success: false, message: 'Refund initiation failed', error: rzpError });
+      }
+    }
+
+    // 2. Update Booking Status
+    booking.status = 'cancelled';
+    booking.refund_id = refundData ? refundData.id : null;
+    booking.refund_amount = refundAmount;
+    booking.deduction_amount = deductionAmount;
+    await booking.save();
+
+    // 3. Restore Ticket Inventory
+    if (event.ticketoptions) {
+      let ticketOptions = event.ticketoptions;
+      if (!Array.isArray(ticketOptions)) ticketOptions = [ticketOptions];
+
+      const updatedOptions = JSON.parse(JSON.stringify(ticketOptions));
+      const optionIndex = updatedOptions.findIndex(opt => opt.class === booking.ticket_class);
+
+      if (optionIndex !== -1) {
+        const option = updatedOptions[optionIndex];
+        if (option.tickets !== undefined) {
+          option.tickets = parseInt(option.tickets) + booking.ticket_count;
+        } else if (option.available !== undefined) {
+          option.available = parseInt(option.available) + booking.ticket_count;
+        }
+        await Event.update({ ticketoptions: updatedOptions }, { where: { id: event.id } });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Booking cancelled successfully',
+      refundAmount: refundAmount.toFixed(2),
+      deductionAmount: deductionAmount.toFixed(2),
+      refundId: refundData ? refundData.id : 'mock_refund_id'
+    });
+
+  } catch (error) {
+    console.error('Cancel Booking Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -67,6 +187,14 @@ exports.getOrderDetails = async (req, res) => {
         imageUrl: event.imageUrl
       }
     };
+
+    if (booking.status === 'cancelled') {
+      responseData.refundDetails = {
+        refundId: booking.refund_id,
+        refundAmount: booking.refund_amount,
+        deductionAmount: booking.deduction_amount
+      };
+    }
 
     res.status(200).json({ success: true, ...responseData });
 
@@ -318,6 +446,86 @@ console.log(selectedOption)
 
   } catch (error) {
     console.error('Error checking ticket availability:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Cancel Event & Refund All Bookings (Admin/Organizer)
+exports.cancelEvent = async (req, res) => {
+  try {
+    const eventId = req.params.id;
+    
+    const event = await Event.findByPk(eventId);
+    if (!event) {
+      return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+
+    // Find all paid bookings for this event
+    const bookings = await Booking.findAll({
+      where: {
+        event_id: eventId,
+        status: 'paid'
+      }
+    });
+
+    let successCount = 0;
+    let failCount = 0;
+    const errors = [];
+
+    // Process refunds for each booking
+    for (const booking of bookings) {
+      try {
+        if (booking.razorpay_payment_id) {
+          const totalAmount = parseFloat(booking.total_amount);
+          const refundAmountInPaise = Math.round(totalAmount * 100);
+
+          // Initiate Full Refund
+          const refund = await razorpay.payments.refund(booking.razorpay_payment_id, {
+            amount: refundAmountInPaise,
+            speed: 'normal',
+            notes: {
+              reason: 'Event Cancelled by Organizer',
+              event_id: eventId,
+              booking_id: booking.id
+            }
+          });
+
+          booking.status = 'cancelled';
+          booking.refund_id = refund.id;
+          booking.refund_amount = totalAmount;
+          booking.deduction_amount = 0; // 0 deduction for event cancellation
+          await booking.save();
+
+          successCount++;
+        } else {
+          failCount++;
+          errors.push(`Booking ${booking.id}: No payment ID found`);
+        }
+      } catch (err) {
+        console.error(`Refund error for booking ${booking.id}:`, err);
+        failCount++;
+        const msg = err.error && err.error.description ? err.error.description : err.message;
+        errors.push(`Booking ${booking.id}: ${msg}`);
+      }
+    }
+
+    // Mark event as inactive
+    event.is_active = false;
+    await event.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Event cancelled and refunds processed',
+      summary: {
+        totalBookings: bookings.length,
+        refunded: successCount,
+        failed: failCount,
+        errors: errors
+      }
+    });
+
+  } catch (error) {
+    console.error('Error cancelling event:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

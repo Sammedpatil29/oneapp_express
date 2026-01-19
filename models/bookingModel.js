@@ -41,6 +41,18 @@ const Booking = sequelize.define('Event Booking', {
   currency: {
     type: DataTypes.STRING,
     defaultValue: 'INR'
+  },
+  refund_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  refund_amount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+  },
+  deduction_amount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
   }
 }, {
   tableName: 'Eevent_bookings',
