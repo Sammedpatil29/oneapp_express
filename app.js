@@ -50,6 +50,7 @@ const { cancelRide } = require('./controllers/createRideController');
 const { searchAndAssignRider } = require('./controllers/createRideController');
 const Rider = require('./models/ridersModel');
 const sequelize = require('./db');
+const updatePastBookings = require('./cron/bookingStatusUpdater');
 
 
 // ===== Middleware =====
@@ -60,7 +61,13 @@ app.use(express.json());
 // ===== Sequelize sync =====
 sequelize
   .sync({ alter: true })
-  .then(() => console.log('✅ Models are synced with the database.'))
+  .then(() => {
+    console.log('✅ Models are synced with the database.');
+    // Run status check immediately on startup
+    updatePastBookings();
+    // Schedule to run every 24 hours (86400000 ms)
+    setInterval(updatePastBookings,  30 * 1000);
+  })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
 // ===== Routes =====

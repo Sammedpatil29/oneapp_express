@@ -35,7 +35,7 @@ const Booking = sequelize.define('Event Booking', {
     type: DataTypes.STRING,
   },
   status: {
-    type: DataTypes.ENUM('pending', 'paid', 'failed'),
+    type: DataTypes.ENUM('pending', 'paid', 'failed', 'cancelled', 'completed'),
     defaultValue: 'pending',
   },
   currency: {
