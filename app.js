@@ -66,7 +66,7 @@ sequelize
     // Run status check immediately on startup
     updatePastBookings();
     // Schedule to run every 24 hours (86400000 ms)
-    setInterval(updatePastBookings,  30 * 1000);
+    setInterval(updatePastBookings, 24 * 60 * 60 * 1000);
   })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
