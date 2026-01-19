@@ -275,6 +275,42 @@ Checks if the requested number of tickets are available for a specific class.
     *   `200 OK` (Available): `{ "success": true, "message": "Tickets available", "data": { ... } }`
     *   `200 OK` (Unavailable): `{ "success": false, "message": "Only X tickets available..." }`
 
+### Get Order Details
+Fetches confirmed order details including price breakdown and event info.
+
+*   **URL:** `/api/events/order-details`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "orderId": 15
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "orderId": 15,
+      "status": "Confirmed",
+      "customerName": "Sammed Patil",
+      "ticketCount": 2,
+      "totalPrice": 1250,
+      "finalCost": 1350,
+      "charges": 100,
+      "event": {
+        "title": "Sunburn Goa 2026",
+        "category": "Music Festival",
+        "date": "2026-12-28",
+        "time": "04:00 PM",
+        "duration": "6 Hours",
+        "location": "Vagator Beach, Goa",
+        "lat": 15.603,
+        "lng": 73.743,
+        "imageUrl": "https://..."
+      }
+    }
+    ```
+
 ### Get All Events
 *   **URL:** `/api/events`
 *   **Method:** `GET`

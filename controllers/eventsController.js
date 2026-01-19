@@ -1,5 +1,6 @@
 const Event = require('../models/eventsModel');
 const User = require('../models/customUserModel');
+const Booking = require('../models/bookingModel');
 const jwt = require('jsonwebtoken');
 
 // Create a new event
@@ -9,6 +10,67 @@ exports.createEvent = async (req, res) => {
     res.status(201).json({ success: true, data: event });
   } catch (error) {
     console.error('Error creating event:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get Order Details by Order ID
+exports.getOrderDetails = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: 'Order ID is required' });
+    }
+
+    const booking = await Booking.findByPk(orderId);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const event = await Event.findByPk(booking.event_id);
+    const user = await User.findByPk(booking.user_id);
+
+    if (!event) {
+      return res.status(404).json({ success: false, message: 'Event details not found' });
+    }
+
+    // Calculate financials (Reverse calculate from total_amount assuming 7% charges)
+    const finalCost = parseFloat(booking.total_amount);
+    const basePrice = finalCost / 1.07;
+    const charges = finalCost - basePrice;
+
+    // Parse location
+    const loc = event.location && typeof event.location === 'object' ? event.location : {};
+
+    // Format category
+    const category = Array.isArray(event.category) ? event.category.join(', ') : event.category;
+
+    const responseData = {
+      orderId: booking.id,
+      status: booking.status === 'paid' ? 'Confirmed' : booking.status,
+      customerName: user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : 'Guest',
+      ticketCount: booking.ticket_count,
+      totalPrice: Math.round(basePrice),
+      finalCost: Math.round(finalCost),
+      charges: Math.round(charges),
+      event: {
+        title: event.title,
+        category: category,
+        date: event.date,
+        time: event.time,
+        duration: event.duration,
+        location: loc.address || '',
+        lat: loc.lat,
+        lng: loc.lng,
+        imageUrl: event.imageUrl
+      }
+    };
+
+    res.status(200).json({ success: true, ...responseData });
+
+  } catch (error) {
+    console.error('Error fetching order details:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
