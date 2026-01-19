@@ -34,7 +34,7 @@ exports.getHistory = async (req, res) => {
           model: Event,
           attributes: ['title']
         }],
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       });
 
       const history = bookings.map(booking => ({
