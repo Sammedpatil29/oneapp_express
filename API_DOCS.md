@@ -457,7 +457,7 @@ Checks the status of a booking. If pending, it queries Razorpay to see if paymen
 ## History
 
 ### Get Order History
-Fetches the order history (excluding pending orders) for the logged-in user.
+Fetches the order history (excluding pending and failed orders) for the logged-in user.
 
 *   **URL:** `/api/history`
 *   **Method:** `POST`
@@ -484,6 +484,33 @@ Fetches the order history (excluding pending orders) for the logged-in user.
           "user": 3
         }
       ]
+    }
+    ```
+
+---
+
+## Notifications
+
+### Send Broadcast Notification
+Sends a push notification to all users with a valid FCM token.
+
+*   **URL:** `/api/notifications/send-all`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "title": "Big Sale!",
+      "body": "50% off on all events.",
+      "imageUrl": "https://example.com/image.jpg",
+      "data": { "screen": "home" }
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "message": "Notification process completed. Sent to 150 devices.",
+      "stats": { "total": 150, "success": 145, "failure": 5 }
     }
     ```
 

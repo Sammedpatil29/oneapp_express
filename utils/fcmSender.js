@@ -4,19 +4,22 @@ const admin = require('firebase-admin');
 // IMPORTANT: Make sure you have a 'firebase-service-account.json' file in your project's root directory.
 // You can download this file from your Firebase project settings.
 try {
-  // Check if the file exists before requiring it.
-  const serviceAccountPath = '../../firebase-service-account.json';
-  // This is a simplified check; in a real app, you might use fs.existsSync
-  const serviceAccount = require(serviceAccountPath); 
-
   if (!admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-    console.log('✅ Firebase Admin SDK initialized.');
+    const serviceAccount = {
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
+    };
+
+    if (serviceAccount.projectId && serviceAccount.clientEmail && serviceAccount.privateKey) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+      console.log('✅ Firebase Admin SDK initialized.');
+    }
   }
 } catch (error) {
-  console.error('❌ Firebase Admin SDK initialization failed. Make sure "firebase-service-account.json" exists in the project root.', error.message);
+  console.error('❌ Firebase Admin SDK initialization failed.', error.message);
   // Subsequent FCM calls will fail if the SDK is not initialized.
 }
 
