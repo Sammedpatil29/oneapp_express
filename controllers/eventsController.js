@@ -4,6 +4,7 @@ const Booking = require('../models/bookingModel');
 const Razorpay = require('razorpay');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
+const { sendFcmNotification } = require('../utils/fcmSender');
 
 // Initialize Razorpay (Ensure keys match your .env or paymentController)
 const razorpay = new Razorpay({
@@ -119,6 +120,16 @@ console.log('Cancelling booking for user ID:', booking.user_id, 'Order ID:', use
         }
         await Event.update({ ticketoptions: updatedOptions }, { where: { id: event.id } });
       }
+    }
+
+    // Send FCM Notification (Booking Cancelled)
+    const user = await User.findByPk(userId);
+    if (user && user.fcm_token) {
+      sendFcmNotification(
+        user.fcm_token,
+        'Booking Cancelled',
+        `Your booking for ${event.title} has been cancelled. Refund of ₹${refundAmount.toFixed(2)} initiated.`
+      ).catch(err => console.error('FCM Error:', err));
     }
 
     res.status(200).json({
@@ -495,6 +506,16 @@ exports.cancelEvent = async (req, res) => {
           booking.refund_amount = totalAmount;
           booking.deduction_amount = 0; // 0 deduction for event cancellation
           await booking.save();
+
+          // Send FCM Notification (Event Cancelled)
+          const user = await User.findByPk(booking.user_id);
+          if (user && user.fcm_token) {
+            sendFcmNotification(
+              user.fcm_token,
+              'Event Cancelled ⚠️',
+              `The event ${event.title} has been cancelled by the organizer. A full refund has been initiated.`
+            ).catch(err => console.error('FCM Error:', err));
+          }
 
           successCount++;
         } else {

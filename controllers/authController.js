@@ -1,6 +1,7 @@
 // controllers/authController.js
 const User = require('../models/customUserModel');
 const { verify, sign } = require('jsonwebtoken');
+const { sendFcmNotification } = require('../utils/fcmSender');
 
 // 🔐 Secret Key (Put this in your .env file in production)
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key_123';
@@ -122,13 +123,23 @@ async function register(req, res) {
     // ✅ Generate Token immediately after creation
     const token = sign({ id: newUser.id, role: newUser.role }, JWT_SECRET, { expiresIn: '7d' });
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
       message: 'User created successfully',
       token: token,
       user: newUser
     });
 
+    // Send a welcome notification if FCM token is present (fire and forget)
+    if (fcm_token) {
+      sendFcmNotification(
+        fcm_token,
+        'Welcome to OneApp!',
+        `Hi ${first_name || 'there'}, thank you for joining us.`
+      ).catch(err => 
+        console.error("Failed to send welcome notification:", err)
+      );
+    }
   } catch (error) {
     console.error('Registration Error:', error);
     // Handle Sequelize Unique Constraint Errors (e.g., duplicate email)

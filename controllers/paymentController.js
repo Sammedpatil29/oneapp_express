@@ -3,6 +3,7 @@ const Booking = require('../models/bookingModel');
 const Event = require('../models/eventsModel');
 const User = require('../models/customUserModel');
 const jwt = require('jsonwebtoken');
+const { sendFcmNotification } = require('../utils/fcmSender');
 
 // Initialize Razorpay
 // ⚠️ Replace with your actual keys or use process.env variables
@@ -77,6 +78,16 @@ exports.createOrder = async (req, res) => {
       status: 'pending'
     });
 
+    // Send FCM Notification (Payment Initiated)
+    const user = await User.findByPk(userId);
+    if (user && user.fcm_token) {
+      sendFcmNotification(
+        user.fcm_token,
+        'Payment Initiated',
+        `Please complete your payment for ${event.title}`
+      ).catch(err => console.error('FCM Error:', err));
+    }
+
     res.status(200).json({
       success: true,
       internal_order_id: booking.id,
@@ -122,9 +133,11 @@ exports.verifyPaymentStatus = async (req, res) => {
         booking.razorpay_payment_id = paidPayment.id;
         await booking.save();
 
+        let eventDetails = null;
         // Decrease ticket count in Event model
         try {
           const event = await Event.findByPk(booking.event_id);
+          eventDetails = event;
           if (event && event.ticketoptions) {
             let ticketOptions = event.ticketoptions;
             // Normalize to array if it's a single object
@@ -149,10 +162,30 @@ exports.verifyPaymentStatus = async (req, res) => {
           console.error('Error updating ticket inventory:', err);
         }
 
+        // Send FCM Notification (Booking Confirmed)
+        const user = await User.findByPk(booking.user_id);
+        if (user && user.fcm_token) {
+          const eventTitle = eventDetails ? eventDetails.title : 'Event';
+          sendFcmNotification(
+            user.fcm_token,
+            'Booking Confirmed! 🎉',
+            `Your tickets for ${eventTitle} are confirmed.`
+          ).catch(err => console.error('FCM Error:', err));
+        }
+
         return res.status(200).json({ success: true, status: 'paid', booking });
       } else if (payments.items.some(p => p.status === 'failed')) {
         booking.status = 'failed';
         await booking.save();
+
+        // Send FCM Notification (Payment Failed)
+        const user = await User.findByPk(booking.user_id);
+        const event = await Event.findByPk(booking.event_id);
+        if (user && user.fcm_token) {
+          const eventTitle = event ? event.title : 'Event';
+          sendFcmNotification(user.fcm_token, 'Payment Failed ❌', `Payment for ${eventTitle} failed. Please try again.`).catch(err => console.error('FCM Error:', err));
+        }
+
         return res.status(200).json({ success: true, status: 'failed', booking });
       }
     }
