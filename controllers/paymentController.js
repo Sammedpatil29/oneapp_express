@@ -151,8 +151,9 @@ exports.verifyPaymentStatus = async (req, res) => {
 
         return res.status(200).json({ success: true, status: 'paid', booking });
       } else if (payments.items.some(p => p.status === 'failed')) {
-         // Optional: Mark as failed if we see a failed attempt, 
-         // but user might retry, so usually better to leave as pending or handle explicitly
+        booking.status = 'failed';
+        await booking.save();
+        return res.status(200).json({ success: true, status: 'failed', booking });
       }
     }
 
