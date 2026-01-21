@@ -40,6 +40,7 @@ module.exports.io = io;
 module.exports.socketMap = io.sockets.sockets;
 app.set('io', io); // ✅ Make io accessible in controllers via req.app.get('io')
 const rideRoutes = require('./Routes/rideRoutes');
+const riderRoutes = require('./Routes/riderRoutes');
 const authRoutes = require('./Routes/authRoutes');
 const serviceRoutes = require('./Routes/serviceRoutes');
 const addressRoutes = require('./Routes/addressRoutes');
@@ -72,6 +73,7 @@ sequelize
 
 // ===== Routes =====
 app.use(rideRoutes);
+app.use('/api/rider', riderRoutes);
 app.use(authRoutes);
 app.use(serviceRoutes);
 app.use('/api/addresses', addressRoutes);
