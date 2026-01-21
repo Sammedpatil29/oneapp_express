@@ -93,56 +93,112 @@ async function calculateRideEstimates(req, res) {
 // Helper to stop the search loop
 const stopRiderSearch = (rideId) => {
   if (activeSearches[rideId]) {
-    clearInterval(activeSearches[rideId]);
+    if (activeSearches[rideId].timeout) {
+      clearTimeout(activeSearches[rideId].timeout);
+    }
     delete activeSearches[rideId];
     console.log(`🛑 Stopped search for ride: ${rideId}`);
   }
 };
 
+// Helper to process riders one by one
+const processNextRider = async (rideId, io) => {
+  const state = activeSearches[rideId];
+  if (!state) return; // Search stopped
+
+  // 1. Check Total Timeout (1.5 mins = 90000ms)
+  if (Date.now() - state.startTime > 90000) {
+    console.log(`⏰ Search timed out for ride ${rideId}`);
+    try {
+      const ride = await Ride.findByPk(rideId);
+      if (ride && ride.status === 'searching') {
+        ride.status = 'cancelled';
+        await ride.save();
+        io.emit('rideUpdate', { id: ride.id, status: 'cancelled', message: 'No drivers accepted' });
+      }
+    } catch (err) {
+      console.error('Error cancelling timed out ride:', err);
+    }
+    stopRiderSearch(rideId);
+    return;
+  }
+
+  try {
+    const ride = await Ride.findByPk(rideId);
+    if (!ride || ride.status !== 'searching') {
+      stopRiderSearch(rideId);
+      return;
+    }
+
+    // 2. Select Rider (Round Robin)
+    const rider = state.riders[state.index % state.riders.length];
+    console.log(`📡 Offering ride ${rideId} to rider ${rider.id} (Index: ${state.index})`);
+
+    // 3. Emit Request
+    io.to(rider.socket_id).emit('ride:request', {
+      rideId: ride.id,
+      trip_details: ride.trip_details,
+      service_details: ride.service_details,
+      fare: ride.service_details.price
+    });
+
+    // 4. Schedule Next Iteration
+    state.index++;
+    state.timeout = setTimeout(() => {
+      processNextRider(rideId, io);
+    }, 10000); // Wait 10 seconds for acceptance before trying next
+
+  } catch (error) {
+    console.error('Error in processNextRider:', error);
+    stopRiderSearch(rideId);
+  }
+};
+
 // Helper to start the search loop
-const startRiderSearch = (rideId, io) => {
+const startRiderSearch = async (rideId, io) => {
   // Clear existing search if any
   stopRiderSearch(rideId);
 
   console.log(`🔍 Starting search for ride: ${rideId}`);
 
-  const searchInterval = setInterval(async () => {
-    try {
-      // 1. Check if ride is still valid for searching
-      const ride = await Ride.findByPk(rideId);
-      if (!ride || ride.status !== 'searching') {
-        stopRiderSearch(rideId);
-        return;
-      }
+  try {
+    const ride = await Ride.findByPk(rideId);
+    if (!ride || ride.status !== 'searching') return;
 
-      // 2. Find Online Riders (Simple implementation: all online riders)
-      // In production, use Geospatial query (PostGIS) to find riders within X km
-      const onlineRiders = await Rider.findAll({
-        where: {
-          status: 'online',
-          socket_id: { [Op.ne]: null } // Ensure they have a socket connection
-        }
-      });
-
-      if (onlineRiders.length > 0) {
-        console.log(`📡 Broadcasting ride ${rideId} to ${onlineRiders.length} riders...`);
-        
-        // 3. Emit to each rider
-        onlineRiders.forEach(rider => {
-          io.to(rider.socket_id).emit('ride:request', {
-            rideId: ride.id,
-            trip_details: ride.trip_details,
-            service_details: ride.service_details,
-            fare: ride.service_details.price // assuming price is here
-          });
-        });
-      }
-    } catch (error) {
-      console.error('Error in rider search loop:', error);
+    // 1. Filter Riders by Type
+    const vehicleType = ride.service_details?.type;
+    const whereClause = {
+      status: 'online',
+      socket_id: { [Op.ne]: null }
+    };
+    if (vehicleType) {
+      whereClause.vehicle_type = vehicleType;
     }
-  }, 5000); // Loop every 5 seconds
 
-  activeSearches[rideId] = searchInterval;
+    const riders = await Rider.findAll({ where: whereClause });
+
+    if (riders.length === 0) {
+      console.log(`No matching riders found for ride ${rideId}`);
+      ride.status = 'cancelled';
+      await ride.save();
+      io.emit('rideUpdate', { id: ride.id, status: 'cancelled', message: 'No drivers available' });
+      return;
+    }
+
+    // 2. Initialize Search State
+    activeSearches[rideId] = {
+      startTime: Date.now(),
+      riders: riders,
+      index: 0,
+      timeout: null
+    };
+
+    // 3. Start Loop
+    processNextRider(rideId, io);
+
+  } catch (error) {
+    console.error('Error starting rider search:', error);
+  }
 };
 
 async function createRideHandler(req, res) {
@@ -186,10 +242,53 @@ async function createRideHandler(req, res) {
 }
 
 /* =========================
+   RIDER CANCEL HANDLER
+========================= */
+async function riderCancelRideHandler(req, res) {
+  try {
+    const { rideId, riderId } = req.body;
+
+    if (!rideId || !riderId) {
+      return res.status(400).json({ success: false, message: 'Ride ID and Rider ID are required' });
+    }
+
+    const ride = await Ride.findByPk(rideId);
+
+    if (!ride) {
+      return res.status(404).json({ success: false, message: 'Ride not found' });
+    }
+
+    // Verify this rider is the one assigned
+    if (ride.riderId && ride.riderId !== riderId) {
+       return res.status(403).json({ success: false, message: 'Not authorized to cancel this ride' });
+    }
+
+    // Reset Ride Status
+    ride.riderId = null;
+    ride.raider_details = null;
+    ride.status = 'searching';
+    await ride.save();
+
+    // Notify User & Restart Search
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('rideUpdate', ride); // Notify user that status is back to searching
+      startRiderSearch(ride.id, io); // Restart the search loop
+    }
+
+    res.status(200).json({ success: true, message: 'Ride unassigned and search restarted', ride });
+  } catch (error) {
+    console.error('Rider Cancel Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+/* =========================
    EXPORTS
 ========================= */
 module.exports = {
   calculateRideEstimates,
   createRideHandler,
-  stopRiderSearch // Exported for use in socketHandler
+  stopRiderSearch, // Exported for use in socketHandler
+  riderCancelRideHandler
 };
