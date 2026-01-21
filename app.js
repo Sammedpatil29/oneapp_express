@@ -37,6 +37,8 @@ const io = new Server(server, {
 });
 
 module.exports.io = io;
+module.exports.socketMap = io.sockets.sockets;
+app.set('io', io); // ✅ Make io accessible in controllers via req.app.get('io')
 const rideRoutes = require('./Routes/rideRoutes');
 const authRoutes = require('./Routes/authRoutes');
 const serviceRoutes = require('./Routes/serviceRoutes');

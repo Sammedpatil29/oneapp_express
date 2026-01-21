@@ -621,26 +621,28 @@ Calculates price, estimated duration, and arrival time for different vehicle typ
 
 ### Client -> Server
 
-*   **`syncRider`**: Updates rider socket ID.
+*   **`syncRider`**: Updates rider socket ID and sets status to 'online'.
     *   Payload: `{ "riderId": "uuid" }`
-*   **`changeRiderStatus`**: Updates rider online/offline status.
-    *   Payload: `{ "riderId": "uuid", "status": "online" }`
-*   **`createRide`**: Creates a ride request via socket.
-    *   Payload: `{ "token": "...", "trip_details": ..., "service_details": ... }`
 *   **`ride:accept`**: Rider accepts a ride.
     *   Payload: `{ "riderId": "...", "rideId": "..." }`
-*   **`ride:reject`**: Rider rejects a ride.
-    *   Payload: `{ "riderId": "...", "rideId": "..." }`
 *   **`cancelRide`**: User cancels a ride.
-    *   Payload: `{ "token": "...", "id": "ride_id" }`
+    *   Payload: `{ "rideId": "ride_id" }`
 
 ### Server -> Client
 
-*   **`welcome`**: Sent on connection.
-*   **`riderUpdate`**: Sent when rider status or socket is updated.
-*   **`rideUpdate`**: Sent when ride status changes (created, assigned, cancelled).
+*   **`rideUpdate`**: Broadcasted when ride status changes (accepted, cancelled).
+    *   Payload: Full ride object OR `{ "id": "...", "status": "cancelled" }`
 *   **`ride:request`**: Sent to specific rider to offer a ride.
-    *   Payload: `{ "rideId": "...", "origin": "...", "destination": "..." }`
+    *   Payload:
+        ```json
+        {
+          "rideId": "...",
+          "trip_details": { ... },
+          "service_details": { ... },
+          "fare": 100
+        }
+        ```
 *   **`ride:confirmed`**: Sent to rider when assignment is confirmed.
-*   **`rider:accepted`**: Broadcasted when a rider accepts.
-*   **`rider:rejected`**: Broadcasted when a rider rejects.
+    *   Payload: `{ "success": true, "ride": { ... } }`
+*   **`ride:error`**: Sent to a rider if acceptance fails (e.g., already taken).
+    *   Payload: `{ "message": "Ride already taken or cancelled" }`

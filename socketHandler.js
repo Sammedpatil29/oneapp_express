@@ -1,85 +1,63 @@
-const { createRide, cancelRide, searchAndAssignRider } = require('./controllers/createRideController');
+const Ride = require('./models/rideModel');
 const Rider = require('./models/ridersModel');
+const { stopRiderSearch } = require('./controllers/createRideController');
 
 module.exports = (io) => {
   io.on('connection', (socket) => {
     console.log('🟢 A user connected:', socket.id);
 
-    // Example: send a message to the connected client
-    socket.emit('welcome', 'Hello from server 👋');
-
-    socket.on('syncRider', async (msg) => {
+    // --- Rider Sync (Important for finding riders) ---
+    socket.on('syncRider', async (data) => {
       try {
-        const syncRider = await Rider.findOne({
-          where: { id: msg.riderId }
-        });
-
-        if (!syncRider) {
-          console.error('Rider not found for sync:', msg.riderId);
-          return;
+        if (data.riderId) {
+          await Rider.update({ socket_id: socket.id, status: 'online' }, { where: { id: data.riderId } });
+          console.log(`Rider ${data.riderId} synced with socket ${socket.id}`);
         }
-
-        syncRider.socket_id = socket.id;
-        await syncRider.save();
-        socket.emit('riderUpdate', syncRider);
-      } catch (error) {
-        console.error('Error in syncRider:', error);
-      }
+      } catch (e) { console.error('Sync error:', e); }
     });
 
-    socket.on('changeRiderStatus', async (msg) => {
-      try {
-        const syncRider = await Rider.findOne({
-          where: { id: msg.riderId }
-        });
-
-        if (!syncRider) {
-          console.error('Rider not found for status change:', msg.riderId);
-          return;
-        }
-        console.log('Changing status to:', msg.status);
-        syncRider.status = msg.status;
-        await syncRider.save();
-        socket.emit('riderUpdate', syncRider);
-      } catch (error) {
-        console.error('Error in changeRiderStatus:', error);
-      }
-    });
-
-    // Example: listen for client message
-    socket.on('createRide', async (msg) => {
-      console.log('📩 Received from client:', msg);
-      try {
-        // Broadcast back to all clients
-        const ride = await createRide(msg);
-        socket.emit('rideUpdate', ride);
-        const assignRider = await searchAndAssignRider(ride.id);
-        socket.emit('rideUpdate', assignRider);
-      } catch (error) {
-        console.error('Error in createRide socket event:', error);
-      }
-    });
-
-    // --- Rider accepts ride ---
-    socket.on('ride:accept', (data) => {
+    // --- Rider Accepts Ride ---
+    socket.on('ride:accept', async (data) => {
+      // data: { rideId, riderId }
       console.log(`✅ Rider ${data.riderId} accepted ride ${data.rideId}`);
-      io.emit('rider:accepted', data); // Global event that waitForRiderResponse() listens for
-    });
-
-    // --- Rider rejects ride ---
-    socket.on('ride:reject', (data) => {
-      console.log(`❌ Rider ${data.riderId} rejected ride ${data.rideId}`);
-      io.emit('rider:rejected', data);
-    });
-
-    socket.on('cancelRide', async (msg) => {
-      console.log(`ride cancel ${msg}`);
+      
       try {
-        const ride = await cancelRide(msg);
-        socket.emit('rideUpdate', ride);
+        const ride = await Ride.findByPk(data.rideId);
+        if (ride && ride.status === 'searching') {
+          // 1. Update Ride
+          ride.status = 'accepted';
+          ride.riderId = data.riderId;
+          await ride.save();
+
+          // 2. Stop the search loop
+          stopRiderSearch(data.rideId);
+
+          // 3. Notify the User (We need user's socket ID, or broadcast to a room named by userId)
+          // For simplicity, we broadcast 'rideUpdate' which the user client should listen to filtering by rideId
+          io.emit('rideUpdate', ride); 
+
+          // 4. Confirm to Rider
+          socket.emit('ride:confirmed', { success: true, ride });
+        } else {
+          socket.emit('ride:error', { message: 'Ride already taken or cancelled' });
+        }
       } catch (error) {
-        console.error('Error in cancelRide socket event:', error);
+        console.error('Ride accept error:', error);
       }
+    });
+
+    // --- User Cancels Ride ---
+    socket.on('cancelRide', async (data) => {
+      // data: { rideId }
+      console.log(`🚫 User cancelled ride ${data.rideId}`);
+      try {
+        await Ride.update({ status: 'cancelled' }, { where: { id: data.rideId } });
+        
+        // Stop the search loop
+        stopRiderSearch(data.rideId);
+        
+        io.emit('rideUpdate', { id: data.rideId, status: 'cancelled' });
+      } catch (error) { console.error('Cancel error:', error); }
     });
 
     socket.on('disconnect', () => {
