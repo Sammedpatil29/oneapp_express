@@ -47,10 +47,6 @@ const eventsRoutes = require('./Routes/eventsRoutes');
 const paymentRoutes = require('./Routes/paymentRoutes');
 const historyRoutes = require('./Routes/historyRoutes');
 const notificationRoutes = require('./Routes/notificationRoutes');
-const { createRide } = require('./controllers/createRideController');
-const { cancelRide } = require('./controllers/createRideController');
-const { searchAndAssignRider } = require('./controllers/createRideController');
-const Rider = require('./models/ridersModel');
 const sequelize = require('./db');
 const updatePastBookings = require('./cron/bookingStatusUpdater');
 
@@ -89,82 +85,8 @@ app.get('/', (req, res) => {
   res.send('✅ Express + Socket.IO server is running!');
 });
 
-// ===== Socket.IO events =====
-io.on('connection', (socket) => {
-  console.log('🟢 A user connected:', socket.id);
-
-  // Example: send a message to the connected client
-  socket.emit('welcome', 'Hello from server 👋');
-
-  socket.on('syncRider', async(msg) => {
-    const syncRider = await Rider.findOne({
-      where: {
-        id: msg.riderId
-      }
-    })
-
-    if(!syncRider){
-      throw new Error('rider not found')
-    }
-
-    syncRider.socket_id = await socket.id
-    syncRider.save()
-    // const syncRider = await syncRider(msg)
-    socket.emit('riderUpdate', syncRider);
-  })
-
-  socket.on('changeRiderStatus', async(msg) => {
-    const syncRider = await Rider.findOne({
-      where: {
-        id: msg.riderId
-      }
-    })
-
-    if(!syncRider){
-      throw new Error('rider not found')
-    }
-console.log(msg)
-    syncRider.status = await msg.status
-    console.log(msg.status)
-    syncRider.save()
-    // const syncRider = await syncRider(msg)
-    socket.emit('riderUpdate', syncRider);
-  })
-
-  // Example: listen for client message
-  socket.on('createRide', async(msg) => {
-    console.log('📩 Received from client:', msg);
-    // Broadcast back to all clients
-    const ride = await createRide(msg);
-    socket.emit('rideUpdate', ride);
-    const assignRider = await searchAndAssignRider(ride.id)
-    socket.emit('rideUpdate', assignRider)
-    // io.emit('serverMessage', `✅ Ride created with ID: ${ride.id}`);
-  });
-
-  // --- Rider accepts ride ---
-  socket.on('ride:accept', (data) => {
-    console.log(`✅ Rider ${data.riderId} accepted ride ${data.rideId}`);
-    io.emit('rider:accepted', data); // Global event that waitForRiderResponse() listens for
-  });
-
-  // --- Rider rejects ride ---
-  socket.on('ride:reject', (data) => {
-    console.log(`❌ Rider ${data.riderId} rejected ride ${data.rideId}`);
-    io.emit('rider:rejected', data);
-  });
-
-  socket.on('cancelRide', async(msg) => {
-    console.log(`ride cancel ${msg}`)
-    const ride = await cancelRide(msg);
-
-    socket.emit('rideUpdate', ride)
-  })
-
-  socket.on('disconnect', () => {
-    console.log('🔴 User disconnected:', socket.id);
-  });
-});
+// ===== Initialize Socket Handler =====
+require('./socketHandler')(io);
 
 // ===== Start the server =====
 server.listen(PORT, () => {
