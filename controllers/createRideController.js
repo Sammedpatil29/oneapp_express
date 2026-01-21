@@ -3,6 +3,7 @@ const Rider = require('../models/ridersModel');
 const { Op } = require('sequelize');
 const { io, socketMap } = require('../app'); // 🔴 socketMap added
 const { verifyUserJwtToken } = require('../utils/jwttoken');
+const axios = require('axios');
 
 /* =========================
    CREATE RIDE
@@ -191,6 +192,82 @@ function waitForRiderResponse(socket, rideId, timeout = 10000) {
 }
 
 /* =========================
+   CALCULATE RIDE ESTIMATES
+========================= */
+async function calculateRideEstimates(req, res) {
+  try {
+    const { origin, drop } = req.body;
+
+    if (!origin || !drop || !origin.coords || !drop.coords) {
+      return res.status(400).json({ message: 'Invalid origin or drop location' });
+    }
+
+    // Google Maps Distance Matrix API
+    const originCoords = `${origin.coords.lat},${origin.coords.lng}`;
+    const destCoords = `${drop.coords.lat},${drop.coords.lng}`;
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+
+    if (!apiKey) {
+      throw new Error('Google Maps API key is not configured.');
+    }
+
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${originCoords}&destinations=${destCoords}&key=${apiKey}`;
+    
+    const response = await axios.get(url);
+    
+    if (response.data.status !== 'OK') {
+      throw new Error(`Google API Error: ${response.data.status}`);
+    }
+
+    const element = response.data.rows[0].elements[0];
+    
+    if (element.status !== 'OK') {
+       throw new Error(`Route not found: ${element.status}`);
+    }
+
+    // Google returns distance in meters and duration in seconds
+    const distanceKm = element.distance.value / 1000;
+    const durationMins = Math.ceil(element.duration.value / 60);
+
+    // Configuration for vehicle types
+    const options = [
+      { type: 'bike', image_url: 'assets/icon/ChatGPT Image Oct 14, 2025, 07_41_18 PM.png', max_person: 'max 1 person', base: 20, rate: 10 },
+      { type: 'cab', image_url: 'assets/icon/ChatGPT Image Oct 14, 2025, 07_41_18 PM.png', max_person: 'max 4 persons', base: 50, rate: 25 },
+      { type: 'auto', image_url: 'assets/icon/ChatGPT Image Oct 14, 2025, 07_41_18 PM.png', max_person: 'max 3 persons', base: 30, rate: 15 },
+      { type: 'parcel', image_url: '/assets/icon/ChatGPT Image Oct 14, 2025, 07_41_18 PM.png', max_person: '20 kgs', base: 40, rate: 12 }
+    ];
+
+    const tripOptions = options.map(opt => {
+      // Calculate Price
+      const price = Math.ceil(opt.base + (distanceKm * opt.rate));
+      
+      // Calculate Arrival Time
+      const arrivalDate = new Date(Date.now() + durationMins * 60000);
+      const estimated_reach_time = arrivalDate.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit', 
+        hour12: true 
+      }).toLowerCase();
+
+      return {
+        type: opt.type,
+        image_url: opt.image_url,
+        max_person: opt.max_person,
+        estimated_time: `${durationMins} mins`,
+        estimated_reach_time: estimated_reach_time,
+        price: price
+      };
+    });
+
+    res.status(200).json(tripOptions);
+
+  } catch (error) {
+    console.error('Estimate Error:', error);
+    res.status(500).json({ message: error.message });
+  }
+}
+
+/* =========================
    EXPORTS
 ========================= */
 module.exports = {
@@ -199,5 +276,6 @@ module.exports = {
   getRidesHandler,
   cancelRide,
   cancelRideHandler,
-  searchAndAssignRider
+  searchAndAssignRider,
+  calculateRideEstimates
 };

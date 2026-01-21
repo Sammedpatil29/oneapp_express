@@ -518,6 +518,50 @@ Sends a push notification to all users with a valid FCM token.
 
 ## Rides & Riders
 
+### Get Ride Estimates
+Calculates price, estimated duration, and arrival time for different vehicle types between two locations.
+
+*   **URL:** `/api/ride/estimate`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "origin": {
+        "coords": {
+          "lat": 12.9716,
+          "lng": 77.5946
+        }
+      },
+      "drop": {
+        "coords": {
+          "lat": 12.2958,
+          "lng": 76.6394
+        }
+      }
+    }
+    ```
+*   **Response:**
+    ```json
+    [
+      {
+        "type": "bike",
+        "image_url": "assets/icon/...",
+        "max_person": "max 1 person",
+        "estimated_time": "15 mins",
+        "estimated_reach_time": "4:30 pm",
+        "price": 45
+      },
+      {
+        "type": "cab",
+        "image_url": "assets/icon/...",
+        "max_person": "max 4 persons",
+        "estimated_time": "15 mins",
+        "estimated_reach_time": "4:30 pm",
+        "price": 120
+      }
+    ]
+    ```
+
 ### Create Ride (User)
 *   **URL:** `/api/ride/create`
 *   **Method:** `POST`
