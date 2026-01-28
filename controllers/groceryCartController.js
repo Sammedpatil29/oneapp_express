@@ -57,13 +57,31 @@ exports.updateCartItem = async (req, res) => {
     // Fetch the updated cart list to return
     const cartItems = await GroceryCartItem.findAll({
       where: { user_id: userId },
+      include: [{
+        model: GroceryItem,
+        attributes: ['price', 'discount']
+      }],
       attributes: ['product_id', 'quantity'],
       order: [['createdAt', 'DESC']]
     });
 
-    const formattedCart = cartItems.map(item => ({ [item.product_id]: item.quantity }));
+    let itemCount = 0;
+    let totalPrice = 0;
 
-    return res.status(200).json({ success: true, message: 'Cart updated', data: formattedCart });
+    const formattedCart = cartItems.map(item => {
+      const qty = item.quantity;
+      itemCount += qty;
+
+      if (item.GroceryItem) {
+        const price = parseFloat(item.GroceryItem.price) || 0;
+        const discount = parseFloat(item.GroceryItem.discount) || 0;
+        const sellingPrice = Math.max(0, price - discount);
+        totalPrice += sellingPrice * qty;
+      }
+      return { [item.product_id]: qty };
+    });
+
+    return res.status(200).json({ success: true, message: 'Cart updated', data: formattedCart, itemCount, totalPrice: totalPrice.toFixed(2) });
 
   } catch (error) {
     console.error('Add to Cart Error:', error);

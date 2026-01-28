@@ -31,6 +31,8 @@ exports.getGroceryHomeData = async (req, res) => {
 
     // 2. Fetch user-specific cart data if a valid token is provided
     let cart = [];
+    let itemCount = 0;
+    let totalPrice = 0;
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -41,10 +43,24 @@ exports.getGroceryHomeData = async (req, res) => {
 
         const cartItems = await GroceryCartItem.findAll({
           where: { user_id: userId },
+          include: [{
+            model: GroceryItem,
+            attributes: ['price', 'discount']
+          }],
           attributes: ['product_id', 'quantity'],
           order: [['createdAt', 'DESC']]
         });
-        cart = cartItems.map(item => ({ [item.product_id]: item.quantity }));
+        cart = cartItems.map(item => {
+          const qty = item.quantity;
+          itemCount += qty;
+          if (item.GroceryItem) {
+            const price = parseFloat(item.GroceryItem.price) || 0;
+            const discount = parseFloat(item.GroceryItem.discount) || 0;
+            const sellingPrice = Math.max(0, price - discount);
+            totalPrice += sellingPrice * qty;
+          }
+          return { [item.product_id]: qty };
+        });
       } catch (error) {
         // Token is invalid or expired, so we'll just return an empty cart.
         // This is a graceful failure, as the cart is optional here.
@@ -78,6 +94,8 @@ exports.getGroceryHomeData = async (req, res) => {
         categories,
         banners,
         cart,
+        itemCount,
+        totalPrice: totalPrice.toFixed(2),
         productSections: [
           {
             title: 'Hot Items',
