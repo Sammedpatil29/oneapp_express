@@ -50,6 +50,10 @@ const eventsRoutes = require('./Routes/eventsRoutes');
 const paymentRoutes = require('./Routes/paymentRoutes');
 const historyRoutes = require('./Routes/historyRoutes');
 const notificationRoutes = require('./Routes/notificationRoutes');
+const groceryRoutes = require('./Routes/groceryRoutes');
+const groceryCategoryRoutes = require('./Routes/groceryCategoryRoutes');
+const groceryCartRoutes = require('./Routes/groceryCartRoutes');
+const groceryHomeRoutes = require('./Routes/groceryHomeRoutes');
 const sequelize = require('./db');
 const updatePastBookings = require('./cron/bookingStatusUpdater');
 
@@ -83,6 +87,10 @@ app.use('/api/events', eventsRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/grocery', groceryRoutes);
+app.use('/api/grocery-categories', groceryCategoryRoutes);
+app.use('/api/grocery/cart', groceryCartRoutes);
+app.use('/api/grocery-home', groceryHomeRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {

@@ -646,3 +646,47 @@ Calculates price, estimated duration, and arrival time for different vehicle typ
     *   Payload: `{ "success": true, "ride": { ... } }`
 *   **`ride:error`**: Sent to a rider if acceptance fails (e.g., already taken).
     *   Payload: `{ "message": "Ride already taken or cancelled" }`
+
+---
+
+## Grocery Module
+
+### 1. Grocery Items
+**Base URL:** `/api/grocery`
+
+| Method | Endpoint | Description | Auth | Body / Params |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/` | Get all items | No | Query: `category`, `active`, `brand`, `featured` |
+| `GET` | `/:id` | Get item details | No | Param: `id` |
+| `POST` | `/` | Create item | Yes* | `{ name, price, stock, unit, unit_value, category, tags, sku, brand, ... }` |
+| `PUT` | `/:id` | Update item | Yes* | Fields to update |
+| `DELETE` | `/:id` | Delete item | Yes* | Param: `id` |
+
+*\*Auth middleware is currently commented out in routes.*
+
+### 2. Grocery Categories
+**Base URL:** `/api/grocery-categories`
+
+| Method | Endpoint | Description | Auth | Body / Params |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/` | Get all categories | No | - |
+| `POST` | `/` | Create category | No | `{ name, img, bg }` |
+| `POST` | `/seed` | Bulk create | No | `[ { name, img, bg }, ... ]` |
+| `POST` | `/seed` | Bulk create | No | `[ { name, img, bg }, ... ]` (Optional: uses default list if empty) |
+| `PUT` | `/:id` | Update category | No | Fields to update |
+| `DELETE` | `/:id` | Delete category | No | Param: `id` |
+
+### 3. Grocery Cart
+**Base URL:** `/api/grocery/cart`
+
+| Method | Endpoint | Description | Auth | Body / Params |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/` | Get user cart | **Yes** | - |
+| `POST` | `/update` | Add/Update item | **Yes** | `{ productId, quantity }` <br> Sets quantity directly. If 0, removes item. |
+| `DELETE` | `/:productId` | Remove item | **Yes** | Param: `productId` |
+
+### 4. Grocery Home
+**Base URL:** `/api/grocery-home`
+
+| Method | Endpoint | Description | Auth | Body / Params |
+| `GET` | `/` | Get home data (categories, banners, cart) | Optional | Header: `Authorization: Bearer <token>` to get cart items. |
