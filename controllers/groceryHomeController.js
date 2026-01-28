@@ -4,13 +4,22 @@ const GroceryCartItem = require('../models/groceryCartItem');
 const GroceryItem = require('../models/groceryItem');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
+const sequelize = require('../db');
 
 exports.getGroceryHomeData = async (req, res) => {
   try {
+    // Get categories with at least one item
+    const distinctCategories = await GroceryItem.findAll({
+      attributes: [[sequelize.fn('DISTINCT', sequelize.col('category')), 'category']],
+      where: { is_active: true },
+      raw: true
+    });
+    const validCategoryNames = distinctCategories.map(item => item.category).filter(Boolean);
+
     // 1. Fetch public data
     const [categories, banners, hotItems, under100Items] = await Promise.all([
       GroceryCategory.findAll({
-        where: { is_active: true },
+        where: { is_active: true, name: { [Op.in]: validCategoryNames } },
         order: [['createdAt', 'ASC']]
       }),
       Banner.findAll({
@@ -120,10 +129,18 @@ exports.getCategoryPageData = async (req, res) => {
   try {
     const { selectedCategory } = req.body;
 
+    // Get categories with at least one item
+    const distinctCategories = await GroceryItem.findAll({
+      attributes: [[sequelize.fn('DISTINCT', sequelize.col('category')), 'category']],
+      where: { is_active: true },
+      raw: true
+    });
+    const validCategoryNames = distinctCategories.map(item => item.category).filter(Boolean);
+
     // 1. Fetch Categories and Products for the selected route
     const [categories, products] = await Promise.all([
       GroceryCategory.findAll({
-        where: { is_active: true },
+        where: { is_active: true, name: { [Op.in]: validCategoryNames } },
         order: [['createdAt', 'ASC']]
       }),
       GroceryItem.findAll({
