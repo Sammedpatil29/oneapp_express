@@ -690,4 +690,7 @@ Calculates price, estimated duration, and arrival time for different vehicle typ
 **Base URL:** `/api/grocery-home`
 
 | Method | Endpoint | Description | Auth | Body / Params |
+| :--- | :--- | :--- | :--- | :--- |
 | `GET` | `/` | Get home data (categories, banners, cart) | Optional | Header: `Authorization: Bearer <token>` to get cart items. |
+| `POST` | `/category` | Get category page data | Optional | `{ "selectedRoute": "string" }` |
+| `POST` | `/productbycategory` | Get products by category | Optional | `{ "selectedCategory": "string" }` |

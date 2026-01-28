@@ -115,3 +115,92 @@ exports.getGroceryHomeData = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+exports.getCategoryPageData = async (req, res) => {
+  try {
+    const { selectedCategory } = req.body;
+
+    // 1. Fetch Categories and Products for the selected route
+    const [categories, products] = await Promise.all([
+      GroceryCategory.findAll({
+        where: { is_active: true },
+        order: [['createdAt', 'ASC']]
+      }),
+      GroceryItem.findAll({
+        where: { category: selectedCategory, is_active: true }
+      })
+    ]);
+
+    // Helper to format products
+    const formatProduct = (item) => {
+      const originalPrice = parseFloat(item.price);
+      const discount = parseFloat(item.discount) || 0;
+      const sellingPrice = originalPrice - discount;
+      const discountPercent = originalPrice > 0 ? Math.round((discount / originalPrice) * 100) : 0;
+
+      return {
+        id: item.id,
+        name: item.name,
+        weight: `${parseFloat(item.unit_value)} ${item.unit}`,
+        price: sellingPrice,
+        originalPrice: originalPrice,
+        discount: discountPercent,
+        time: '15 mins',
+        stock: item.stock,
+        img: item.image_url
+      };
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        categories,
+        products: products.map(formatProduct)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching category page data:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getProductsByCategory = async (req, res) => {
+  try {
+    const { selectedCategory } = req.body;
+
+    // 1. Fetch Products for the selected category
+    const products = await GroceryItem.findAll({
+      where: { category: selectedCategory, is_active: true }
+    });
+
+    // Helper to format products
+    const formatProduct = (item) => {
+      const originalPrice = parseFloat(item.price);
+      const discount = parseFloat(item.discount) || 0;
+      const sellingPrice = originalPrice - discount;
+      const discountPercent = originalPrice > 0 ? Math.round((discount / originalPrice) * 100) : 0;
+
+      return {
+        id: item.id,
+        name: item.name,
+        weight: `${parseFloat(item.unit_value)} ${item.unit}`,
+        price: sellingPrice,
+        originalPrice: originalPrice,
+        discount: discountPercent,
+        time: '15 mins',
+        stock: item.stock,
+        img: item.image_url
+      };
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        products: products.map(formatProduct)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching products by category:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
