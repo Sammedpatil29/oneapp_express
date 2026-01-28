@@ -1,7 +1,6 @@
 const GroceryCategory = require('../models/groceryCategory');
 const Banner = require('../models/banners');
 const GroceryCartItem = require('../models/groceryCartItem');
-const GroceryItem = require('../models/groceryItem');
 const jwt = require('jsonwebtoken');
 
 exports.getGroceryHomeData = async (req, res) => {
@@ -30,11 +29,12 @@ exports.getGroceryHomeData = async (req, res) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
         const userId = decoded.id;
 
-        cart = await GroceryCartItem.findAll({
+        const cartItems = await GroceryCartItem.findAll({
           where: { user_id: userId },
-          include: [{ model: GroceryItem }],
+          attributes: ['product_id', 'quantity'],
           order: [['createdAt', 'DESC']]
         });
+        cart = cartItems.map(item => ({ [item.product_id]: item.quantity }));
       } catch (error) {
         // Token is invalid or expired, so we'll just return an empty cart.
         // This is a graceful failure, as the cart is optional here.

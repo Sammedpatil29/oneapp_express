@@ -659,6 +659,7 @@ Calculates price, estimated duration, and arrival time for different vehicle typ
 | `GET` | `/` | Get all items | No | Query: `category`, `active`, `brand`, `featured` |
 | `GET` | `/:id` | Get item details | No | Param: `id` |
 | `POST` | `/` | Create item | Yes* | `{ name, price, stock, unit, unit_value, category, tags, sku, brand, ... }` |
+| `POST` | `/bulk` | Bulk create items | Yes* | `[ { name, ... }, ... ]` |
 | `PUT` | `/:id` | Update item | Yes* | Fields to update |
 | `DELETE` | `/:id` | Delete item | Yes* | Param: `id` |
 

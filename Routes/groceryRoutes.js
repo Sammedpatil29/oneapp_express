@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   createItem,
+  createBulkItems,
   getAllItems,
   getItemById,
   updateItem,
@@ -18,6 +19,7 @@ router.get('/:id', getItemById);
 
 // Protected routes (Uncomment verifyToken if needed)
 router.post('/', /* verifyToken, */ createItem);
+router.post('/bulk', /* verifyToken, */ createBulkItems);
 router.put('/:id', /* verifyToken, */ updateItem);
 router.delete('/:id', /* verifyToken, */ deleteItem);
 

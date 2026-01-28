@@ -11,6 +11,21 @@ exports.createItem = async (req, res) => {
   }
 };
 
+// Bulk create grocery items
+exports.createBulkItems = async (req, res) => {
+  try {
+    const itemsData = req.body;
+    if (!Array.isArray(itemsData)) {
+      return res.status(400).json({ success: false, message: 'Input must be an array' });
+    }
+    const items = await GroceryItem.bulkCreate(itemsData);
+    res.status(201).json({ success: true, count: items.length, data: items });
+  } catch (error) {
+    console.error('Error bulk creating grocery items:', error);
+    res.status(500).json({ success: false, message: 'Failed to create items', error: error.message });
+  }
+};
+
 // Get all grocery items
 exports.getAllItems = async (req, res) => {
   try {

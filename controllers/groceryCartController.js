@@ -20,28 +20,50 @@ exports.updateCartItem = async (req, res) => {
     });
 
     if (qty <= 0) {
-      if (cartItem) await cartItem.destroy();
-      return res.status(200).json({ success: true, message: 'Item removed from cart', data: null });
-    }
-
-    if (cartItem) {
-      cartItem.quantity = qty;
-      await cartItem.save();
+      if (cartItem) {
+        await cartItem.destroy();
+      }
     } else {
-      cartItem = await GroceryCartItem.create({
-        user_id: userId,
-        product_id: productId,
-        quantity: qty
-      });
+      // Fetch the grocery item to validate against
+      const groceryItem = await GroceryItem.findByPk(productId);
+      if (!groceryItem) {
+        return res.status(404).json({ success: false, message: 'Product not found' });
+      }
+
+      // Validate stock, min, and max quantity
+      if (qty > groceryItem.stock) {
+        return res.status(400).json({ success: false, message: `Only ${groceryItem.stock} items available in stock.` });
+      }
+      if (qty < groceryItem.min_quantity) {
+        return res.status(400).json({ success: false, message: `Minimum order quantity is ${groceryItem.min_quantity}.` });
+      }
+      if (groceryItem.max_quantity && qty > groceryItem.max_quantity) {
+        return res.status(400).json({ success: false, message: `Maximum order quantity is ${groceryItem.max_quantity}.` });
+      }
+
+      // If validation passes, update or create
+      if (cartItem) {
+        cartItem.quantity = qty;
+        await cartItem.save();
+      } else {
+        await GroceryCartItem.create({
+          user_id: userId,
+          product_id: productId,
+          quantity: qty
+        });
+      }
     }
 
-    // Fetch the updated item with product details to return
-    const updatedItem = await GroceryCartItem.findOne({
-      where: { id: cartItem.id },
-      include: [{ model: GroceryItem }]
+    // Fetch the updated cart list to return
+    const cartItems = await GroceryCartItem.findAll({
+      where: { user_id: userId },
+      attributes: ['product_id', 'quantity'],
+      order: [['createdAt', 'DESC']]
     });
 
-    return res.status(200).json({ success: true, message: 'Cart updated', data: updatedItem });
+    const formattedCart = cartItems.map(item => ({ [item.product_id]: item.quantity }));
+
+    return res.status(200).json({ success: true, message: 'Cart updated', data: formattedCart });
 
   } catch (error) {
     console.error('Add to Cart Error:', error);
@@ -55,10 +77,12 @@ exports.getCart = async (req, res) => {
     const userId = req.user.id;
     const cartItems = await GroceryCartItem.findAll({
       where: { user_id: userId },
-      include: [{ model: GroceryItem }],
+      attributes: ['product_id', 'quantity'],
       order: [['createdAt', 'DESC']]
     });
-    res.status(200).json({ success: true, data: cartItems });
+
+    const formattedCart = cartItems.map(item => ({ [item.product_id]: item.quantity }));
+    res.status(200).json({ success: true, data: formattedCart });
   } catch (error) {
     console.error('Get Cart Error:', error);
     res.status(500).json({ success: false, message: error.message });
