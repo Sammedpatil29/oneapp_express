@@ -67,6 +67,7 @@ exports.getGroceryHomeData = async (req, res) => {
         originalPrice: originalPrice,
         discount: discountPercent,
         time: '15 mins',
+        stock: item.stock,
         img: item.image_url
       };
     };
