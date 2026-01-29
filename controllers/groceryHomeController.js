@@ -17,7 +17,7 @@ exports.getGroceryHomeData = async (req, res) => {
     const validCategoryNames = distinctCategories.map(item => item.category).filter(Boolean);
 
     // 1. Fetch public data
-    const [categories, banners, hotItems, under100Items] = await Promise.all([
+    const [categories, carouselBanners, miniBanner, hotItems, under100Items] = await Promise.all([
       GroceryCategory.findAll({
         where: { is_active: true, name: { [Op.in]: validCategoryNames } },
         order: [['createdAt', 'ASC']]
@@ -26,6 +26,12 @@ exports.getGroceryHomeData = async (req, res) => {
         where: {
           is_active: true,
           type: 'corousel'
+        }
+      }),
+      Banner.findOne({
+        where: {
+          is_active: true,
+          type: 'mini'
         }
       }),
       GroceryItem.findAll({
@@ -101,7 +107,8 @@ exports.getGroceryHomeData = async (req, res) => {
       success: true,
       data: {
         categories,
-        banners,
+        carouselBanners,
+        miniBanner,
         cart,
         itemCount,
         totalPrice: totalPrice.toFixed(2),
