@@ -155,14 +155,14 @@ exports.getCart = async (req, res) => {
     }).filter(Boolean);
 
     // 2. Calculate Charges
-    const handlingCharge = 5.00;
-    const freeDeliveryThreshold = 499;
-    const deliveryFee = totalSellingPrice >= freeDeliveryThreshold ? 0 : 40.00;
+    const handlingCharge = 3.00;
+    const freeDeliveryThreshold = 199;
+    const deliveryFee = totalSellingPrice >= freeDeliveryThreshold ? 0 : 30.00;
     
     // Late Night Charge (10 PM - 6 AM)
     const hour = new Date().getHours();
     const isLateNight = hour >= 22 || hour < 6;
-    const lateNightCharge = isLateNight ? 35.00 : 0;
+    const lateNightCharge = isLateNight ? 15.00 : 0;
     
     const surgeCharge = 0; // Placeholder
     
@@ -214,7 +214,7 @@ exports.getCart = async (req, res) => {
 
     suggestions = await GroceryItem.findAll({
       where: whereClause,
-      limit: 6,
+      limit: 10,
       order: sequelize.random()
     });
 
@@ -231,7 +231,8 @@ exports.getCart = async (req, res) => {
         price: sellingPrice,
         originalPrice: originalPrice,
         discount: discountPercent,
-        img: item.image_url
+        img: item.image_url,
+        stock: item.stock
       };
     };
 
