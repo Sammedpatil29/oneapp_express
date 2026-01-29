@@ -694,3 +694,4 @@ Calculates price, estimated duration, and arrival time for different vehicle typ
 | `GET` | `/` | Get home data (categories, banners, cart) | Optional | Header: `Authorization: Bearer <token>` to get cart items. |
 | `POST` | `/category` | Get category page data | Optional | `{ "selectedRoute": "string" }` |
 | `POST` | `/productbycategory` | Get products by category | Optional | `{ "selectedCategory": "string" }` |
+| `POST` | `/section` | Get dynamic section data | No | `{ "term": "under_100" \| "trending" \| "new_arrivals" }` |

@@ -221,3 +221,71 @@ exports.getProductsByCategory = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+exports.getDynamicSectionData = async (req, res) => {
+  try {
+    const { term } = req.body;
+    let banner = null;
+    let products = [];
+    let title = '';
+
+    // Helper to format products
+    const formatProduct = (item) => {
+      const originalPrice = parseFloat(item.price);
+      const discount = parseFloat(item.discount) || 0;
+      const sellingPrice = originalPrice - discount;
+      const discountPercent = originalPrice > 0 ? Math.round((discount / originalPrice) * 100) : 0;
+
+      return {
+        id: item.id,
+        name: item.name,
+        weight: `${parseFloat(item.unit_value)} ${item.unit}`,
+        price: sellingPrice,
+        originalPrice: originalPrice,
+        discount: discountPercent,
+        time: '15 mins',
+        stock: item.stock,
+        img: item.image_url
+      };
+    };
+
+    if (term === 'under_100') {
+      title = 'Under ₹100 Store';
+      banner = await Banner.findOne({ where: { type: 'under_100', is_active: true } });
+      products = await GroceryItem.findAll({
+        where: { price: { [Op.lt]: 100 }, is_active: true },
+        limit: 20
+      });
+    } else if (term === 'trending') {
+      title = 'Trending Now';
+      banner = await Banner.findOne({ where: { type: 'trending', is_active: true } });
+      products = await GroceryItem.findAll({
+        where: { is_featured: true, is_active: true },
+        limit: 20
+      });
+    } else if (term === 'new_arrivals') {
+      title = 'Fresh Arrivals';
+      banner = await Banner.findOne({ where: { type: 'new_arrivals', is_active: true } });
+      products = await GroceryItem.findAll({
+        where: { is_active: true },
+        order: [['createdAt', 'DESC']],
+        limit: 20
+      });
+    } else {
+      // Default empty response for unknown terms
+      title = 'Section';
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        title,
+        banner,
+        products: products.map(formatProduct)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dynamic section data:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
