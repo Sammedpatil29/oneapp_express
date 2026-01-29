@@ -109,12 +109,14 @@ exports.getGroceryHomeData = async (req, res) => {
           {
             title: 'Hot Items',
             subtitle: 'Trending now',
-            products: hotItems.map(formatProduct)
+            products: hotItems.map(formatProduct),
+            term: 'trending'
           },
           {
             title: 'Under ₹100',
             subtitle: 'Budget friendly picks',
-            products: under100Items.map(formatProduct)
+            products: under100Items.map(formatProduct),
+            term: 'under_100'
           }
         ]
       }
