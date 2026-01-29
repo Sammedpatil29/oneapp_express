@@ -149,6 +149,7 @@ exports.getCart = async (req, res) => {
         sellingPrice: sellingPrice,
         quantity: qty,
         stock: product.stock,
+        category: product.category,
         total: isOutOfStock ? 0 : sellingPrice * qty,
         isOutOfStock
       };
@@ -173,22 +174,73 @@ exports.getCart = async (req, res) => {
 
     if (coupon) {
       const code = coupon.toUpperCase();
-      // Mock Coupons (Replace with DB lookup: await Coupon.findOne({ where: { code } }))
+      
+      // Mock User Order Count (Replace with: await Order.count({ where: { userId } }))
+      const userOrderCount = 0; 
+
+      // Mock Coupons (Replace with DB lookup)
       const coupons = {
-        'WELCOME50': { type: 'flat', value: 50, minOrder: 299 },
-        'SAVE10': { type: 'percent', value: 10, max: 100, minOrder: 500 }
+        'WELCOME50': { 
+          type: 'flat', 
+          value: 50, 
+          minOrder: 299, 
+          requiresNewUser: true 
+        },
+        'SAVE10': { 
+          type: 'percent', 
+          value: 10, 
+          max: 100, 
+          minOrder: 500,
+          excludedCategories: ['oil&ghee', 'milk'] 
+        }
       };
 
       const promo = coupons[code];
+      
       if (promo) {
-        if (totalSellingPrice >= promo.minOrder) {
-          if (promo.type === 'flat') couponDiscount = promo.value;
-          if (promo.type === 'percent') couponDiscount = Math.min((totalSellingPrice * promo.value) / 100, promo.max);
-          couponStatus = 'applied';
-          couponMessage = 'Coupon applied successfully';
-        } else {
+        let isValid = true;
+        let eligibleAmount = totalSellingPrice;
+
+        // 1. Check New User Condition
+        if (promo.requiresNewUser && userOrderCount > 0) {
+          isValid = false;
           couponStatus = 'not_applicable';
-          couponMessage = `Add items worth ₹${(promo.minOrder - totalSellingPrice).toFixed(2)} more to apply this coupon`;
+          couponMessage = 'Coupon is valid only for new users';
+        }
+
+        // 2. Check Excluded Categories (Calculate eligible amount)
+        if (isValid && promo.excludedCategories) {
+          eligibleAmount = items.reduce((sum, item) => {
+            const isExcluded = item.category && promo.excludedCategories.some(cat => 
+              item.category.toLowerCase().includes(cat.toLowerCase())
+            );
+            return isExcluded ? sum : sum + item.total;
+          }, 0);
+        }
+
+        if (isValid) {
+          if (totalSellingPrice >= promo.minOrder) {
+            if (promo.type === 'flat') {
+              couponDiscount = promo.value;
+            } else if (promo.type === 'percent') {
+              couponDiscount = Math.min((eligibleAmount * promo.value) / 100, promo.max);
+            }
+
+            if (couponDiscount > 0) {
+              couponStatus = 'applied';
+              couponMessage = 'Coupon applied successfully';
+              
+              if (eligibleAmount < totalSellingPrice) {
+                couponMessage = 'Coupon applied on eligible items only';
+              }
+            } else {
+              couponStatus = 'not_applicable';
+              couponMessage = 'Coupon not applicable on items in cart';
+            }
+          } else {
+            couponStatus = 'not_applicable';
+            couponMessage = `Add items worth ₹${(promo.minOrder - totalSellingPrice).toFixed(2)} more to apply this coupon`;
+          }
         }
       } else {
         couponStatus = 'invalid';
