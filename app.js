@@ -87,9 +87,9 @@ app.use('/api/events', eventsRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/grocery/cart', groceryCartRoutes);
 app.use('/api/grocery', groceryRoutes);
 app.use('/api/grocery-categories', groceryCategoryRoutes);
-app.use('/api/grocery/cart', groceryCartRoutes);
 app.use('/api/grocery-home', groceryHomeRoutes);
 
 // ===== Root route =====
