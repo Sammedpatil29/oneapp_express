@@ -291,3 +291,67 @@ exports.getDynamicSectionData = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+exports.searchGroceryItems = async (req, res) => {
+  try {
+    const { searchTerm } = req.body;
+
+    if (!searchTerm) {
+      return res.status(400).json({ success: false, message: 'Search term is required' });
+    }
+
+    // Search query
+    const products = await GroceryItem.findAll({
+      where: {
+        is_active: true,
+        [Op.or]: [
+          { name: { [Op.iLike]: `%${searchTerm}%` } },
+          { description: { [Op.iLike]: `%${searchTerm}%` } },
+          { brand: { [Op.iLike]: `%${searchTerm}%` } },
+          { category: { [Op.iLike]: `%${searchTerm}%` } },
+          // Search in tags (casting JSONB to text for simple substring match)
+          sequelize.where(sequelize.cast(sequelize.col('tags'), 'text'), { [Op.iLike]: `%${searchTerm}%` })
+        ]
+      }
+    });
+
+    // Fetch user-specific cart data
+    let cart = [];
+    let itemCount = 0;
+    let totalPrice = 0;
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+
+
+    // Helper to format products (reusing the same logic)
+    const formatProduct = (item) => {
+      const originalPrice = parseFloat(item.price);
+      const discount = parseFloat(item.discount) || 0;
+      const sellingPrice = originalPrice - discount;
+      const discountPercent = originalPrice > 0 ? Math.round((discount / originalPrice) * 100) : 0;
+
+      return {
+        id: item.id,
+        name: item.name,
+        weight: `${parseFloat(item.unit_value)} ${item.unit}`,
+        price: sellingPrice,
+        originalPrice: originalPrice,
+        discount: discountPercent,
+        time: '15 mins',
+        stock: item.stock,
+        img: item.image_url
+      };
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        products: products.map(formatProduct)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error searching grocery items:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

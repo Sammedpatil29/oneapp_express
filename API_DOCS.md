@@ -695,3 +695,4 @@ Calculates price, estimated duration, and arrival time for different vehicle typ
 | `POST` | `/category` | Get category page data | Optional | `{ "selectedRoute": "string" }` |
 | `POST` | `/productbycategory` | Get products by category | Optional | `{ "selectedCategory": "string" }` |
 | `POST` | `/section` | Get dynamic section data | No | `{ "term": "under_100" \| "trending" \| "new_arrivals" }` |
+| `POST` | `/search` | Search items | Optional | `{ "searchTerm": "apple" }` |
