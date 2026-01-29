@@ -249,7 +249,7 @@ exports.getCart = async (req, res) => {
     }
 
     const toPay = Math.max(0, totalSellingPrice + handlingCharge + deliveryFee + lateNightCharge + surgeCharge - couponDiscount);
-    const totalSavings = (totalMRP - totalSellingPrice) + couponDiscount + (deliveryFee === 0 && totalSellingPrice > 0 ? 40 : 0);
+    const totalSavings = (totalMRP - totalSellingPrice) + couponDiscount + (deliveryFee === 0 && totalSellingPrice > 0 ? 30 : 0);
 
     // 3. Product Suggestions
     let suggestions = [];
