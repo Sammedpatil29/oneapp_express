@@ -83,6 +83,17 @@ exports.getGroceryHomeData = async (req, res) => {
       }
     }
 
+    // Format banners to include a non-null term
+    const formatBanner = (banner) => {
+      if (!banner) return null;
+      const bannerObject = banner.get({ plain: true });
+      // Ensure term is a string, default to empty string if null/undefined
+      return { ...bannerObject, term: bannerObject.term || "" };
+    };
+
+    const formattedCarouselBanners = carouselBanners.map(formatBanner);
+    const formattedMiniBanner = formatBanner(miniBanner);
+
     // Helper to format products
     const formatProduct = (item) => {
       const originalPrice = parseFloat(item.price);
@@ -107,8 +118,8 @@ exports.getGroceryHomeData = async (req, res) => {
       success: true,
       data: {
         categories,
-        carouselBanners,
-        miniBanner,
+        carouselBanners: formattedCarouselBanners,
+        miniBanner: formattedMiniBanner,
         cart,
         itemCount,
         totalPrice: totalPrice.toFixed(2),

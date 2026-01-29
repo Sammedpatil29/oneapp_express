@@ -27,6 +27,10 @@ const Banner = sequelize.define('Banner', {
   type: {
     type: DataTypes.STRING(100),
     allowNull: true
+  },
+  term: {
+    type: DataTypes.STRING(100),
+    allowNull: true
   }
 }, {
   tableName: 'banners', // Force table name
