@@ -1,4 +1,6 @@
 const GroceryItem = require('../models/groceryItem');
+const { Op } = require('sequelize');
+const sequelize = require('../db');
 
 // Create a new grocery item
 exports.createItem = async (req, res) => {
@@ -51,7 +53,46 @@ exports.getItemById = async (req, res) => {
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
-    res.status(200).json({ success: true, data: item });
+
+    // Fetch suggestions based on Category and Tags
+    const whereClause = {
+      is_active: true,
+      id: { [Op.ne]: item.id }
+    };
+
+    const orConditions = [];
+    if (item.category) {
+      orConditions.push({ category: item.category });
+    }
+    // Attempt to match tags if they exist and are an array (Postgres JSONB overlap)
+    if (item.tags && Array.isArray(item.tags) && item.tags.length > 0) {
+      // Use raw literal for JSONB overlap (?|) as Op.overlap (&&) is for Arrays
+      const escapedTags = item.tags.map(tag => `'${tag.replace(/'/g, "''")}'`).join(',');
+      orConditions.push(sequelize.literal(`tags ?| ARRAY[${escapedTags}]`));
+    }
+
+    if (orConditions.length > 0) {
+      whereClause[Op.or] = orConditions;
+    }
+
+    const suggestions = await GroceryItem.findAll({
+      where: whereClause,
+      limit: 10,
+      order: sequelize.random()
+    });
+
+    const formatProduct = (prod) => ({
+      id: prod.id,
+      name: prod.name,
+      weight: `${parseFloat(prod.unit_value)} ${prod.unit}`,
+      price: Math.max(0, parseFloat(prod.price) - (parseFloat(prod.discount) || 0)),
+      originalPrice: parseFloat(prod.price),
+      discount: parseFloat(prod.price) > 0 ? Math.round(((parseFloat(prod.discount) || 0) / parseFloat(prod.price)) * 100) : 0,
+      img: prod.image_url,
+      stock: prod.stock
+    });
+
+    res.status(200).json({ success: true, data: item, suggestions: suggestions.map(formatProduct) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error fetching item', error: error.message });
   }
