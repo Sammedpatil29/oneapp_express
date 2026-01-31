@@ -30,7 +30,8 @@ const formatDineoutForList = (dineout) => {
       : (data.ratingCount || 0).toString(),
     offers: Array.isArray(data.offers) ? data.offers.map(o => ({
       icon: 'pricetag',
-      text: o.title || o.description
+      title: o.title,
+      description: o.description
     })) : [],
     isFav: false,
     isVeg: data.isVeg
