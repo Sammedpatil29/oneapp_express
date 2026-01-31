@@ -54,7 +54,7 @@ const groceryRoutes = require('./Routes/groceryRoutes');
 const groceryCategoryRoutes = require('./Routes/groceryCategoryRoutes');
 const groceryCartRoutes = require('./Routes/groceryCartRoutes');
 const groceryHomeRoutes = require('./Routes/groceryHomeRoutes');
-const dineoutRoutes = require('./routes/dineoutRoutes');
+const dineoutRoutes = require('./Routes/dineoutRoutes');
 const sequelize = require('./db');
 const updatePastBookings = require('./cron/bookingStatusUpdater');
 
