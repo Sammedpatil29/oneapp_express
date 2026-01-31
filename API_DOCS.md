@@ -696,3 +696,53 @@ Calculates price, estimated duration, and arrival time for different vehicle typ
 | `POST` | `/productbycategory` | Get products by category | Optional | `{ "selectedCategory": "string" }` |
 | `POST` | `/section` | Get dynamic section data | No | `{ "term": "under_100" \| "trending" \| "new_arrivals" }` |
 | `POST` | `/search` | Search items | Optional | `{ "searchTerm": "apple" }` |
+
+---
+
+## Dineout
+
+### Create Restaurant
+*   **URL:** `/api/dineout`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "name": "Restaurant Name",
+      "image": "url",
+      "location": "Area, City",
+      "distance": "5 km",
+      "price": "₹1200 for two",
+      "rating": 4.5,
+      "coords": { "lat": 12.9, "lng": 77.6 },
+      "amenities": [{ "name": "Wifi", "icon": "wifi" }],
+      "openingHours": [{ "day": "Monday", "slots": ["10am-10pm"] }],
+      "menuItems": [],
+      "offers": []
+    }
+    ```
+
+### Get All Restaurants
+*   **URL:** `/api/dineout`
+*   **Method:** `GET`
+*   **Query Params:**
+    *   `city`: Filter by city name
+    *   `search`: Search by name, tags, or location
+    *   `veg`: `true` for veg-only
+
+### Get Restaurant by ID
+*   **URL:** `/api/dineout/:id`
+*   **Method:** `GET`
+
+### Update Restaurant
+*   **URL:** `/api/dineout/:id`
+*   **Method:** `PUT`
+*   **Body:** Fields to update.
+
+### Delete Restaurant
+*   **URL:** `/api/dineout/:id`
+*   **Method:** `DELETE`
+
+### Seed Restaurants
+*   **URL:** `/api/dineout/seed`
+*   **Method:** `POST`
+*   **Body:** Array of restaurant objects.
