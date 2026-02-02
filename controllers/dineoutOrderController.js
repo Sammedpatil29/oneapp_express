@@ -2,6 +2,8 @@ const DineoutOrder = require('../models/dineoutOrderModel');
 const Dineout = require('../models/dineoutModel');
 const jwt = require('jsonwebtoken');
 const admin = require('firebase-admin');
+const User = require('../models/customUserModel');
+const { sendFcmNotification } = require('../utils/fcmSender');
 
 exports.createDineoutOrder = async (req, res) => {
   try {
@@ -171,6 +173,14 @@ exports.getDineoutOrderDetails = async (req, res) => {
         icon: 'close-circle-outline',
         billWindow: false
       }
+    } else if (order.status === 'REJECTED' || order.status === 'rejected') {
+      info = {
+        message: 'Bill Rejected!',
+        sub: 'Your bill verification failed!',
+        color: 'bg-danger',
+        icon: 'close-circle-outline',
+        billWindow: true
+      }
     } else if (order.status === 'CONFIRMED') {
       info = {
         message: 'Booking Confirmed!',
@@ -187,12 +197,20 @@ exports.getDineoutOrderDetails = async (req, res) => {
         icon: 'hourglass-outline',
         billWindow: true
       }
-     } else {
+    } else if (order.status === 'COMPLETED') {
         info = {
           message: 'Booking Completed!',
           sub: 'Your booking has been completed!',
           color: 'bg-success',
           icon: 'checkmark-circle',
+          billWindow: false
+        }
+    } else {
+        info = {
+          message: 'Booking Pending!',
+          sub: 'Your booking is pending!',
+          color: 'bg-primary',
+          icon: 'time-outline',
           billWindow: false
         }
       }
@@ -208,6 +226,112 @@ exports.getDineoutOrderDetails = async (req, res) => {
     res.status(200).json({ success: true, data: responseData });
   } catch (error) {
     console.error('Error fetching dineout order details:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.verifyBill = async (req, res) => {
+  try {
+    // 1. Verify Token (Ideally check for Admin/Manager role here)
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    try {
+      jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+    } catch (err) {
+      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    // 2. Extract Data
+    const { bookingId, status, billAmount } = req.body;
+
+    if (!bookingId || !status) {
+      return res.status(400).json({ success: false, message: 'Booking ID and status are required' });
+    }
+
+    const order = await DineoutOrder.findByPk(bookingId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // 3. Process Verification
+    if (status === 'verified') {
+      if (!billAmount) {
+        return res.status(400).json({ success: false, message: 'Bill amount is required for verification' });
+      }
+
+      const originalAmount = parseFloat(billAmount);
+      let discount = 0;
+
+      // Calculate Discount based on offer_applied
+      if (order.offer_applied) {
+        const offer = order.offer_applied;
+        const val = parseFloat(offer.value || offer.amount || offer.discount || 0);
+        const type = (offer.type || '').toLowerCase();
+
+        if (type === 'flat') {
+          discount = val;
+        } else if (type === 'percent' || type === 'percentage' || (val > 0 && val <= 100)) {
+          // Default to percent if type is ambiguous but value is reasonable for a percentage
+          discount = (originalAmount * val) / 100;
+        }
+      }
+
+      // Ensure discount doesn't exceed amount
+      if (discount > originalAmount) discount = originalAmount;
+      const finalAmount = originalAmount - discount;
+
+      // Update Order with calculations
+      order.bill_details = {
+        ...order.bill_details,
+        grandTotal: finalAmount.toFixed(2), // Update root fields so History API sees the verified cost
+        toPay: finalAmount.toFixed(2),
+        verification: {
+          originalAmount: originalAmount.toFixed(2),
+          discount: discount.toFixed(2),
+          finalAmount: finalAmount.toFixed(2),
+          verifiedAt: new Date()
+        }
+      };
+      order.status = 'COMPLETED';
+
+    } else if (status === 'cancelled' || status === 'rejected') {
+      order.status = 'REJECTED';
+    } else {
+      return res.status(400).json({ success: false, message: 'Invalid status. Use "verified", "cancelled" or "rejected".' });
+    }
+
+    await order.save();
+
+    // Send FCM Notification
+    try {
+      const user = await User.findByPk(order.user_id);
+      if (user && user.fcm_token) {
+        let title, body;
+        if (order.status === 'COMPLETED') {
+          title = 'Bill Verified! ✅';
+          const savedAmount = order.bill_details?.verification?.discount || '0';
+          body = `Your bill has been verified. You saved ₹${savedAmount}!`;
+        } else if (order.status === 'REJECTED') {
+          title = 'Bill Rejected ❌';
+          body = 'Your bill verification was rejected.';
+        }
+
+        if (title) await sendFcmNotification(user.fcm_token, title, body);
+      }
+    } catch (err) { console.error('Notification Error:', err); }
+
+    // 4. Return updated response (reusing getDineoutOrderDetails logic for consistency)
+    // We can call the internal logic or just construct the response here.
+    // For simplicity, calling the details endpoint logic or reconstructing:
+    req.body.orderId = bookingId;
+    return exports.getDineoutOrderDetails(req, res);
+
+  } catch (error) {
+    console.error('Error verifying bill:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
