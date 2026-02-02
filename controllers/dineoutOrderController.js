@@ -1,6 +1,7 @@
 const DineoutOrder = require('../models/dineoutOrderModel');
 const Dineout = require('../models/dineoutModel');
 const jwt = require('jsonwebtoken');
+const admin = require('firebase-admin');
 
 exports.createDineoutOrder = async (req, res) => {
   try {
@@ -54,6 +55,95 @@ exports.createDineoutOrder = async (req, res) => {
     res.status(201).json({ success: true, message: 'Order placed successfully', data: responseData });
   } catch (error) {
     console.error('Error creating dineout order:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.uploadBillImage = async (req, res) => {
+  try {
+    // 1. Verify Token
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    let userId;
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+      userId = decoded.id;
+    } catch (err) {
+      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    // 2. Extract Data
+    const { bookingId, image } = req.body;
+
+    if (!bookingId || !image || !image.base64String) {
+      return res.status(400).json({ success: false, message: 'Booking ID and Image data are required' });
+    }
+
+    const order = await DineoutOrder.findByPk(bookingId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.user_id !== userId) {
+      return res.status(403).json({ success: false, message: 'Unauthorized to update this order' });
+    }
+
+    // 3. Upload to Firebase
+    if (admin.apps.length === 0) {
+      // Initialize with default credentials (requires GOOGLE_APPLICATION_CREDENTIALS env var or similar config)
+      admin.initializeApp();
+    }
+
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+    if (!bucketName) {
+      console.log('FIREBASE_STORAGE_BUCKET not found in environment variables');
+    }
+
+    const bucket = admin.storage().bucket(bucketName);
+    const buffer = Buffer.from(image.base64String, 'base64');
+    const filename = `dineout_bills/${bookingId}_${Date.now()}.${image.format || 'jpg'}`;
+    const file = bucket.file(filename);
+
+    await file.save(buffer, {
+      metadata: { contentType: `image/${image.format || 'jpeg'}` }
+    });
+
+    // Get Signed URL (valid for 1 year)
+    const [url] = await file.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 1000 * 60 * 60 * 24 * 365 
+    });
+
+    // 4. Update Order
+    order.bill_image_url = url;
+    order.status = 'verifying';
+    await order.save();
+
+    // 5. Response
+    const restaurant = await Dineout.findByPk(order.restaurant_id);
+    const responseData = {
+      ...order.toJSON(),
+      billImageUrl: url,
+      coords: restaurant ? { lat: restaurant.lat, lng: restaurant.lng } : {},
+      contact: restaurant ? restaurant.contact : null,
+      info: {
+        message: 'Bill Verifying!',
+        sub: 'Your bill is being verified!',
+        color: 'bg-warning',
+        icon: 'close-circle-outline',
+        billWindow: true
+      }
+    };
+
+    res.status(200).json({ success: true, message: 'Bill uploaded successfully', data: responseData });
+
+  } catch (error) {
+    console.error('Error uploading bill:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -34,6 +34,10 @@ const DineoutOrder = sequelize.define('DineoutOrder', {
     type: DataTypes.JSONB,
     allowNull: false,
   },
+  bill_image_url: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
   status: {
     type: DataTypes.STRING,
     defaultValue: 'PENDING',
