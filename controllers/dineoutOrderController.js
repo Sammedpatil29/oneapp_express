@@ -78,28 +78,32 @@ exports.getDineoutOrderDetails = async (req, res) => {
         message: 'Booking Cancelled!',
         sub: 'Your booking has been cancelled!',
         color: 'bg-danger',
-        icon: 'close-circle-outline'
+        icon: 'close-circle-outline',
+        billWindow: false
       }
     } else if (order.status === 'CONFIRMED') {
       info = {
         message: 'Booking Confirmed!',
         sub: 'Your table is reserved successfully!',
         color: 'bg-success',
-        icon: 'checkmark-circle'
+        icon: 'checkmark-circle',
+        billWindow: true
       }
     } else if (order.status === 'verifying') {
       info = {
         message: 'Bill Verifying!',
         sub: 'Your bill is being verified!',
         color: 'bg-warning',
-        icon: 'close-circle-outline'
+        icon: 'close-circle-outline',
+        billWindow: false
       }
      } else {
         info = {
           message: 'Booking Completed!',
           sub: 'Your booking has been completed!',
           color: 'bg-success',
-          icon: 'checkmark-circle'
+          icon: 'checkmark-circle',
+          billWindow: false
         }
       }
 
