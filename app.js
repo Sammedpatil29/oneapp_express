@@ -78,7 +78,7 @@ sequelize
     // Schedule to run every 24 hours (86400000 ms)
     setInterval(updatePastBookings, 24 * 60 * 60 * 1000);
     // Schedule to run every 30 minutes (1800000 ms)
-    setInterval(updateStaleDineoutOrders, 60 * 1000);
+    setInterval(updateStaleDineoutOrders, 30 *60 * 1000);
   })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
