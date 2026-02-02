@@ -1,5 +1,6 @@
 const Booking = require('../models/bookingModel');
 const Event = require('../models/eventsModel');
+const DineoutOrder = require('../models/dineoutOrderModel');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 
@@ -23,8 +24,10 @@ exports.getHistory = async (req, res) => {
     }
 
     const { type } = req.body;
+    let historyData = [];
 
-    if (type === 'event') {
+    // 1. Fetch Events
+    if (!type || type === 'event' || type === 'all') {
       const bookings = await Booking.findAll({
         where: { 
           user_id: userId,
@@ -34,24 +37,52 @@ exports.getHistory = async (req, res) => {
           model: Event,
           attributes: ['title']
         }],
-        order: [['createdAt', 'ASC']]
+        order: [['createdAt', 'DESC']]
       });
 
-      const history = bookings.map(booking => ({
+      const eventHistory = bookings.map(booking => ({
         id: booking.id,
         type: 'event',
         title: booking.Event ? booking.Event.title : 'Unknown Event',
         created_at: booking.createdAt,
-        status: booking.status, // e.g., 'paid', 'pending'
+        status: booking.status,
         finalCost: booking.total_amount,
         user: booking.user_id
       }));
 
-      return res.status(200).json({ success: true, data: history });
+      historyData = [...historyData, ...eventHistory];
     }
 
-    // Default empty for other types for now
-    return res.status(200).json({ success: true, data: [] });
+    // 2. Fetch Dineout Orders
+    if (!type || type === 'dineout' || type === 'all') {
+      const dineoutOrders = await DineoutOrder.findAll({
+        where: { user_id: userId },
+        order: [['createdAt', 'DESC']]
+      });
+
+      const dineoutHistory = dineoutOrders.map(order => {
+        const bill = order.bill_details || {};
+        // Attempt to find a total amount field in the JSONB bill_details
+        const cost = bill.grandTotal || bill.totalAmount || bill.toPay || 0;
+
+        return {
+          id: order.id,
+          type: 'dineout',
+          title: order.restaurant_name,
+          created_at: order.createdAt,
+          status: order.status,
+          finalCost: cost,
+          user: order.user_id
+        };
+      });
+
+      historyData = [...historyData, ...dineoutHistory];
+    }
+
+    // Sort combined data by createdAt DESC (Newest first)
+    historyData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    return res.status(200).json({ success: true, data: historyData });
 
   } catch (error) {
     console.error('Get History Error:', error);
