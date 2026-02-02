@@ -72,7 +72,7 @@ exports.getDineoutOrderDetails = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    const info = {}
+    let info = {}
     if(order.status === 'CANCELLED'){
       info = {
         message: 'Booking Cancelled!',
