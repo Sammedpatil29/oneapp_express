@@ -179,7 +179,7 @@ exports.getDineoutOrderDetails = async (req, res) => {
         sub: 'Your bill verification failed!',
         color: 'bg-danger',
         icon: 'close-circle-outline',
-        billWindow: true
+        billWindow: false
       }
     } else if (order.status === 'CONFIRMED') {
       info = {
