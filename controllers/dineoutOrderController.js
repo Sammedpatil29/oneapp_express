@@ -184,8 +184,8 @@ exports.getDineoutOrderDetails = async (req, res) => {
         message: 'Bill Verifying!',
         sub: 'Your bill is being verified!',
         color: 'bg-warning',
-        icon: 'close-circle-outline',
-        billWindow: false
+        icon: 'hourglass-outline',
+        billWindow: true
       }
      } else {
         info = {
