@@ -165,7 +165,8 @@ exports.cancelDineoutOrder = async (req, res) => {
         message: 'Booking Cancelled!',
         sub: 'Your booking has been cancelled!',
         color: 'bg-danger',
-        icon: 'close-circle-outline'
+        icon: 'close-circle-outline',
+        billWindow: false
       }
     };
 
