@@ -41,7 +41,7 @@ exports.createDineoutOrder = async (req, res) => {
       time_slot: timeSlot,
       offer_applied: offerApplied,
       bill_details: billDetails,
-      status: 'PENDING'
+      status: 'CONFIRMED'
     });
 
     const restaurant = await Dineout.findByPk(restaurantId);
@@ -71,6 +71,37 @@ exports.getDineoutOrderDetails = async (req, res) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
+
+    const info = {}
+    if(order.status === 'CANCELLED'){
+      info = {
+        message: 'Booking Cancelled!',
+        sub: 'Your booking has been cancelled!',
+        color: 'bg-danger',
+        icon: 'close-circle-outline'
+      }
+    } else if (order.status === 'CONFIRMED') {
+      info = {
+        message: 'Booking Confirmed!',
+        sub: 'Your table is reserved successfully!',
+        color: 'bg-success',
+        icon: 'checkmark-circle'
+      }
+    } else if (order.status === 'verifying') {
+      info = {
+        message: 'Bill Verifying!',
+        sub: 'Your bill is being verified!',
+        color: 'bg-warning',
+        icon: 'close-circle-outline'
+      }
+     } else {
+        info = {
+          message: 'Booking Completed!',
+          sub: 'Your booking has been completed!',
+          color: 'bg-success',
+          icon: 'checkmark-circle'
+        }
+      }
 
     const restaurant = await Dineout.findByPk(order.restaurant_id);
     const responseData = {
@@ -124,6 +155,7 @@ exports.cancelDineoutOrder = async (req, res) => {
 
     order.status = 'CANCELLED';
     await order.save();
+
 
     const restaurant = await Dineout.findByPk(order.restaurant_id);
     const responseData = {
