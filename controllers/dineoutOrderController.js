@@ -1,4 +1,5 @@
 const DineoutOrder = require('../models/dineoutOrderModel');
+const Dineout = require('../models/dineoutModel');
 const jwt = require('jsonwebtoken');
 
 exports.createDineoutOrder = async (req, res) => {
@@ -43,7 +44,14 @@ exports.createDineoutOrder = async (req, res) => {
       status: 'PENDING'
     });
 
-    res.status(201).json({ success: true, message: 'Booking created successfully', data: order });
+    const restaurant = await Dineout.findByPk(restaurantId);
+    const responseData = {
+      ...order.toJSON(),
+      coords: restaurant ? { lat: restaurant.lat, lng: restaurant.lng } : {},
+      contact: restaurant ? restaurant.contact : null
+    };
+
+    res.status(201).json({ success: true, message: 'Order placed successfully', data: responseData });
   } catch (error) {
     console.error('Error creating dineout order:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -64,7 +72,20 @@ exports.getDineoutOrderDetails = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    res.status(200).json({ success: true, data: order });
+    const restaurant = await Dineout.findByPk(order.restaurant_id);
+    const responseData = {
+      ...order.toJSON(),
+      coords: restaurant ? { lat: restaurant.lat, lng: restaurant.lng } : {},
+      contact: restaurant ? restaurant.contact : null,
+      info: {
+        message: 'Booking Confirmed!',
+        sub: 'Your table is reserved successfully!',
+        color: 'bg-success',
+        icon: 'checkmark-circle'
+      }
+    };
+
+    res.status(200).json({ success: true, data: responseData });
   } catch (error) {
     console.error('Error fetching dineout order details:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -104,7 +125,20 @@ exports.cancelDineoutOrder = async (req, res) => {
     order.status = 'CANCELLED';
     await order.save();
 
-    res.status(200).json({ success: true, message: 'Order cancelled successfully', data: order });
+    const restaurant = await Dineout.findByPk(order.restaurant_id);
+    const responseData = {
+      ...order.toJSON(),
+      coords: restaurant ? { lat: restaurant.lat, lng: restaurant.lng } : {},
+      contact: restaurant ? restaurant.contact : null,
+      info: {
+        message: 'Booking Cancelled!',
+        sub: 'Your booking has been cancelled!',
+        color: 'bg-danger',
+        icon: 'close-circle-outline'
+      }
+    };
+
+    res.status(200).json({ success: true, message: 'Order cancelled successfully', data: responseData });
   } catch (error) {
     console.error('Error cancelling dineout order:', error);
     res.status(500).json({ success: false, message: error.message });
