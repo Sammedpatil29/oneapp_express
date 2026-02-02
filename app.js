@@ -58,6 +58,7 @@ const dineoutRoutes = require('./Routes/dineoutRoutes');
 const dineoutOrderRoutes = require('./Routes/dineoutOrderRoutes');
 const sequelize = require('./db');
 const updatePastBookings = require('./cron/bookingStatusUpdater');
+const updateStaleDineoutOrders = require('./cron/dineoutOrderStatusUpdater');
 
 
 // ===== Middleware =====
@@ -73,8 +74,11 @@ sequelize
     console.log('✅ Models are synced with the database.');
     // Run status check immediately on startup
     updatePastBookings();
+    updateStaleDineoutOrders();
     // Schedule to run every 24 hours (86400000 ms)
     setInterval(updatePastBookings, 24 * 60 * 60 * 1000);
+    // Schedule to run every 30 minutes (1800000 ms)
+    setInterval(updateStaleDineoutOrders, 60 * 1000);
   })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
