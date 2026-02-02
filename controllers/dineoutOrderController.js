@@ -108,12 +108,7 @@ exports.getDineoutOrderDetails = async (req, res) => {
       ...order.toJSON(),
       coords: restaurant ? { lat: restaurant.lat, lng: restaurant.lng } : {},
       contact: restaurant ? restaurant.contact : null,
-      info: {
-        message: 'Booking Confirmed!',
-        sub: 'Your table is reserved successfully!',
-        color: 'bg-success',
-        icon: 'checkmark-circle'
-      }
+      info: info
     };
 
     res.status(200).json({ success: true, data: responseData });
