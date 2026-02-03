@@ -217,7 +217,7 @@ exports.calculateBillOffers = async (req, res) => {
       // Extract offer details with fallbacks for various naming conventions
       const val = parseFloat(offer.value || offer.amount || offer.discount || 0);
       const type = (offer.type || '').toLowerCase();
-      const minBill = parseFloat(offer.min_bill || offer.minBill || 0);
+      const minBill = parseFloat(offer.min_bill || offer.minBill || offer.min_bill_amount || 0);
       const maxDiscount = parseFloat(offer.max_discount || offer.maxDiscount || Number.MAX_VALUE);
 
       // Check eligibility
@@ -394,12 +394,15 @@ exports.verifyBill = async (req, res) => {
         const offer = order.offer_applied;
         const val = parseFloat(offer.value || offer.amount || offer.discount || 0);
         const type = (offer.type || '').toLowerCase();
+        const minBill = parseFloat(offer.min_bill || offer.minBill || offer.min_bill_amount || 0);
 
-        if (type === 'flat') {
-          discount = val;
-        } else if (type === 'percent' || type === 'percentage' || (val > 0 && val <= 100)) {
-          // Default to percent if type is ambiguous but value is reasonable for a percentage
-          discount = (originalAmount * val) / 100;
+        if (originalAmount >= minBill) {
+          if (type === 'flat') {
+            discount = val;
+          } else if (type === 'percent' || type === 'percentage' || (val > 0 && val <= 100)) {
+            // Default to percent if type is ambiguous but value is reasonable for a percentage
+            discount = (originalAmount * val) / 100;
+          }
         }
       }
 
