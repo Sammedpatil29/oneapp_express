@@ -640,7 +640,7 @@ exports.verifyBill = async (req, res) => {
       // Update Order with calculations
       order.bill_details = {
         ...order.bill_details,
-        grandTotal: finalAmount.toFixed(2), // Update root fields so History API sees the verified cost
+        totalAmount: finalAmount.toFixed(2), // Update root fields so History API sees the verified cost
         toPay: finalAmount.toFixed(2),
         verification: {
           originalAmount: originalAmount.toFixed(2),
