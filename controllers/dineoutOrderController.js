@@ -177,6 +177,7 @@ exports.calculateBillOffers = async (req, res) => {
     let restaurant;
     let appliedOffer = null;
 
+    // 2. Fetch Restaurant/Order Data
     if (bookingId) {
       const order = await DineoutOrder.findByPk(bookingId);
       if (!order) {
@@ -195,7 +196,7 @@ exports.calculateBillOffers = async (req, res) => {
     }
 
     const amount = parseFloat(billAmount);
-    if (isNaN(amount)) {
+    if (isNaN(amount) || amount < 0) {
       return res.status(400).json({ success: false, message: 'Invalid bill amount' });
     }
 
@@ -206,45 +207,62 @@ exports.calculateBillOffers = async (req, res) => {
     // Ensure offers is an array
     let offers = Array.isArray(restaurant.offers) ? [...restaurant.offers] : [];
 
+    // If there was a specific offer applied during booking, ensure it's in the list to be checked
     if (appliedOffer) {
-      const exists = offers.find(o => (o.id && appliedOffer.id && o.id === appliedOffer.id));
+      // Logic assumes offers have unique IDs or Titles to check duplicates
+      const exists = offers.find(o => 
+        (o.id && appliedOffer.id && o.id === appliedOffer.id) || 
+        (o.title && appliedOffer.title && o.title === appliedOffer.title)
+      );
       if (!exists) {
         offers.push(appliedOffer);
       }
     }
 
+    // 3. Calculation Loop (Updated for your JSON structure)
     for (const offer of offers) {
-      // Extract offer details with fallbacks for various naming conventions
-      const val = parseFloat(offer.value || offer.amount || offer.discount || 0);
-      const type = (offer.type || '').toLowerCase();
-      const minBill = parseFloat(offer.min_bill || offer.minBill || offer.min_bill_amount || 0);
-      const maxDiscount = parseFloat(offer.max_discount || offer.maxDiscount || Number.MAX_VALUE);
+      // Map JSON keys to variables
+      const offerValue = parseFloat(offer.value || 0);
+      const minBillAmount = parseFloat(offer.min_bill_amount || 0); // specific key from your JSON
+      const maxDiscount = parseFloat(offer.max_discount || 0); // specific key from your JSON
+      
+      // Normalize type to Uppercase for comparison (FLAT, PERCENT)
+      const type = (offer.type || '').toUpperCase(); 
 
-      // Check eligibility
-      if (amount >= minBill) {
+      // Check Eligibility: Bill Amount must be >= Min Bill Amount
+      if (amount >= minBillAmount) {
         let savings = 0;
 
-        if (type === 'flat') {
-          savings = val;
-        } else if (type === 'percent' || type === 'percentage') {
-          savings = (amount * val) / 100;
-          if (savings > maxDiscount) {
+        if (type === 'FLAT') {
+          // For FLAT, the savings is the value directly
+          savings = offerValue;
+        } else if (type === 'PERCENT' || type === 'PERCENTAGE') {
+          // For PERCENT, calculate percentage
+          savings = (amount * offerValue) / 100;
+          
+          // Apply Max Discount Cap for percentages if max_discount > 0
+          if (maxDiscount > 0 && savings > maxDiscount) {
             savings = maxDiscount;
           }
         }
 
-        // Cap savings at bill amount
-        if (savings > amount) savings = amount;
+        // Safety Check: Savings cannot exceed the total bill amount (Bill can't go negative)
+        if (savings > amount) {
+          savings = amount;
+        }
 
+        // Only add to eligible list if there are actual savings
         if (savings > 0) {
           const offerData = {
             ...offer,
-            savings: savings.toFixed(2),
-            finalBill: (amount - savings).toFixed(2)
+            // Convert to numbers for consistency in response
+            savings: parseFloat(savings.toFixed(2)),
+            finalBill: parseFloat((amount - savings).toFixed(2))
           };
           
           eligibleOffers.push(offerData);
 
+          // Track Best Offer
           if (savings > maxSavings) {
             maxSavings = savings;
             bestOffer = offerData;
@@ -254,16 +272,16 @@ exports.calculateBillOffers = async (req, res) => {
     }
 
     // Sort eligible offers by savings descending (highest savings first)
-    eligibleOffers.sort((a, b) => parseFloat(b.savings) - parseFloat(a.savings));
+    eligibleOffers.sort((a, b) => b.savings - a.savings);
 
     res.status(200).json({
       success: true,
       data: {
-        originalAmount: amount.toFixed(2),
+        originalAmount: parseFloat(amount.toFixed(2)),
         bestOffer: bestOffer,
         eligibleOffers: eligibleOffers,
-        maxSavings: maxSavings.toFixed(2),
-        finalAmount: (amount - maxSavings).toFixed(2)
+        maxSavings: parseFloat(maxSavings.toFixed(2)),
+        finalAmount: parseFloat((amount - maxSavings).toFixed(2))
       }
     });
 
