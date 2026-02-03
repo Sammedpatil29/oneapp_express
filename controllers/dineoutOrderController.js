@@ -150,6 +150,107 @@ exports.uploadBillImage = async (req, res) => {
   }
 };
 
+exports.calculateBillOffers = async (req, res) => {
+  try {
+    // 1. Verify Token
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    let userId;
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+      userId = decoded.id;
+    } catch (err) {
+      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    const { billAmount, restaurantId } = req.body;
+
+    if (!billAmount || !restaurantId) {
+      return res.status(400).json({ success: false, message: 'Bill amount and Restaurant ID are required' });
+    }
+
+    const restaurant = await Dineout.findByPk(restaurantId);
+    if (!restaurant) {
+      return res.status(404).json({ success: false, message: 'Restaurant not found' });
+    }
+
+    const amount = parseFloat(billAmount);
+    if (isNaN(amount)) {
+      return res.status(400).json({ success: false, message: 'Invalid bill amount' });
+    }
+
+    let bestOffer = null;
+    let maxSavings = 0;
+    let eligibleOffers = [];
+
+    // Ensure offers is an array
+    const offers = Array.isArray(restaurant.offers) ? restaurant.offers : [];
+
+    for (const offer of offers) {
+      // Extract offer details with fallbacks for various naming conventions
+      const val = parseFloat(offer.value || offer.amount || offer.discount || 0);
+      const type = (offer.type || '').toLowerCase();
+      const minBill = parseFloat(offer.min_bill || offer.minBill || 0);
+      const maxDiscount = parseFloat(offer.max_discount || offer.maxDiscount || Number.MAX_VALUE);
+
+      // Check eligibility
+      if (amount >= minBill) {
+        let savings = 0;
+
+        if (type === 'flat') {
+          savings = val;
+        } else if (type === 'percent' || type === 'percentage') {
+          savings = (amount * val) / 100;
+          if (savings > maxDiscount) {
+            savings = maxDiscount;
+          }
+        }
+
+        // Cap savings at bill amount
+        if (savings > amount) savings = amount;
+
+        if (savings > 0) {
+          const offerData = {
+            ...offer,
+            savings: savings.toFixed(2),
+            finalBill: (amount - savings).toFixed(2)
+          };
+          
+          eligibleOffers.push(offerData);
+
+          if (savings > maxSavings) {
+            maxSavings = savings;
+            bestOffer = offerData;
+          }
+        }
+      }
+    }
+
+    // Sort eligible offers by savings descending (highest savings first)
+    eligibleOffers.sort((a, b) => parseFloat(b.savings) - parseFloat(a.savings));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        originalAmount: amount.toFixed(2),
+        bestOffer: bestOffer,
+        eligibleOffers: eligibleOffers,
+        maxSavings: maxSavings.toFixed(2),
+        finalAmount: (amount - maxSavings).toFixed(2)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error calculating bill offers:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.getDineoutOrderDetails = async (req, res) => {
   try {
     const { orderId } = req.body;

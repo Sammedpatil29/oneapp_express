@@ -7,5 +7,6 @@ router.post('/details', dineoutOrderController.getDineoutOrderDetails);
 router.post('/cancel', dineoutOrderController.cancelDineoutOrder);
 router.post('/upload-bill', dineoutOrderController.uploadBillImage)
 router.post('/verify-bill', dineoutOrderController.verifyBill);
+router.post('/calculate-bill', dineoutOrderController.calculateBillOffers);
 
 module.exports = router;

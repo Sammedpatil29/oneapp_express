@@ -64,6 +64,30 @@ Updates the Firebase Cloud Messaging token for push notifications.
     }
     ```
 
+### Get User Profile
+Fetches the logged-in user's profile.
+
+*   **URL:** `/user`
+*   **Method:** `GET`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+
+### Update User Profile
+Updates user profile details.
+
+*   **URL:** `/user`
+*   **Method:** `PATCH`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "first_name": "John",
+      "last_name": "Doe",
+      "email": "john.doe@example.com"
+    }
+    ```
+
 ---
 
 ## Home
@@ -574,9 +598,18 @@ Calculates price, estimated duration, and arrival time for different vehicle typ
     }
     ```
 
-### Get All Rides
-*   **URL:** `/api/ride`
-*   **Method:** `GET`
+### Rider Cancel Ride
+Allows a rider to cancel/unassign themselves from a ride.
+
+*   **URL:** `/api/ride/rider-cancel`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "rideId": 1,
+      "riderId": "uuid"
+    }
+    ```
 
 ### Create Rider (Registration)
 *   **URL:** `/api/rider/create`
@@ -746,3 +779,60 @@ Calculates price, estimated duration, and arrival time for different vehicle typ
 *   **URL:** `/api/dineout/seed`
 *   **Method:** `POST`
 *   **Body:** Array of restaurant objects.
+
+### Dineout Orders
+**Base URL:** `/api/dineout/orders`
+
+#### Create Order
+*   **URL:** `/create`
+*   **Method:** `POST`
+*   **Headers:** `Authorization: Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "restaurantId": 1,
+      "restaurantName": "Tasty Bites",
+      "guestCount": 2,
+      "date": "2023-12-25",
+      "timeSlot": "19:00",
+      "offerApplied": { ... },
+      "billDetails": { ... }
+    }
+    ```
+
+#### Get Order Details
+*   **URL:** `/details`
+*   **Method:** `POST`
+*   **Body:** `{ "orderId": 1 }`
+
+#### Cancel Order
+*   **URL:** `/cancel`
+*   **Method:** `POST`
+*   **Headers:** `Authorization: Bearer <token>`
+*   **Body:** `{ "orderId": 1 }`
+
+#### Upload Bill
+*   **URL:** `/upload-bill`
+*   **Method:** `POST`
+*   **Headers:** `Authorization: Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "bookingId": 1,
+      "image": { "base64String": "...", "format": "jpg" }
+    }
+    ```
+
+#### Verify Bill (Admin/Manager)
+*   **URL:** `/verify-bill`
+*   **Method:** `POST`
+*   **Headers:** `Authorization: Bearer <token>`
+*   **Body:** `{ "bookingId": 1, "status": "verified", "billAmount": 1500 }`
+
+#### Calculate Bill Offers
+Calculates the best offer and savings for a given bill amount.
+
+*   **URL:** `/calculate-bill`
+*   **Method:** `POST`
+*   **Headers:** `Authorization: Bearer <token>`
+*   **Body:** `{ "restaurantId": 1, "billAmount": 2000 }`
