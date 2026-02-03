@@ -168,13 +168,28 @@ exports.calculateBillOffers = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid or expired token' });
     }
 
-    const { billAmount, restaurantId } = req.body;
+    const { billAmount, restaurantId, bookingId } = req.body;
 
-    if (!billAmount || !restaurantId) {
-      return res.status(400).json({ success: false, message: 'Bill amount and Restaurant ID are required' });
+    if (!billAmount) {
+      return res.status(400).json({ success: false, message: 'Bill amount is required' });
     }
 
-    const restaurant = await Dineout.findByPk(restaurantId);
+    let restaurant;
+    let appliedOffer = null;
+
+    if (bookingId) {
+      const order = await DineoutOrder.findByPk(bookingId);
+      if (!order) {
+        return res.status(404).json({ success: false, message: 'Order not found' });
+      }
+      restaurant = await Dineout.findByPk(order.restaurant_id);
+      appliedOffer = order.offer_applied;
+    } else if (restaurantId) {
+      restaurant = await Dineout.findByPk(restaurantId);
+    } else {
+      return res.status(400).json({ success: false, message: 'Restaurant ID or Booking ID is required' });
+    }
+
     if (!restaurant) {
       return res.status(404).json({ success: false, message: 'Restaurant not found' });
     }
@@ -189,7 +204,14 @@ exports.calculateBillOffers = async (req, res) => {
     let eligibleOffers = [];
 
     // Ensure offers is an array
-    const offers = Array.isArray(restaurant.offers) ? restaurant.offers : [];
+    let offers = Array.isArray(restaurant.offers) ? [...restaurant.offers] : [];
+
+    if (appliedOffer) {
+      const exists = offers.find(o => (o.id && appliedOffer.id && o.id === appliedOffer.id));
+      if (!exists) {
+        offers.push(appliedOffer);
+      }
+    }
 
     for (const offer of offers) {
       // Extract offer details with fallbacks for various naming conventions
