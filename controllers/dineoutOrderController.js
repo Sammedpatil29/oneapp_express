@@ -183,7 +183,7 @@ exports.verifyDineoutPayment = async (req, res) => {
 
       if (paidPayment) {
         // 1. Update Order Status
-        order.status = 'PAID';
+        order.status = 'COMPLETED';
         order.razorpay_payment_id = paidPayment.id;
         await order.save();
 
