@@ -8,5 +8,7 @@ router.post('/cancel', dineoutOrderController.cancelDineoutOrder);
 router.post('/upload-bill', dineoutOrderController.uploadBillImage)
 router.post('/verify-bill', dineoutOrderController.verifyBill);
 router.post('/calculate-bill', dineoutOrderController.calculateBillOffers);
+router.post('/payment/create', dineoutOrderController.createDineoutPayment);
+router.post('/payment/verify', dineoutOrderController.verifyDineoutPayment);
 
 module.exports = router;

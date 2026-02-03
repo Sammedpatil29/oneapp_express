@@ -95,6 +95,14 @@ const Dineout = sequelize.define('Dineout', {
     type: DataTypes.JSONB, // Array of amenity objects
     allowNull: true
   },
+  transactions: {
+    type: DataTypes.JSONB,
+    defaultValue: []
+  },
+  earnings: {
+    type: DataTypes.FLOAT,
+    defaultValue: 0
+  },
   is_active: {
     type: DataTypes.BOOLEAN,
     defaultValue: true

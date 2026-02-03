@@ -38,6 +38,14 @@ const DineoutOrder = sequelize.define('DineoutOrder', {
     type: DataTypes.TEXT,
     allowNull: true,
   },
+  razorpay_order_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  razorpay_payment_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
   status: {
     type: DataTypes.STRING,
     defaultValue: 'PENDING',

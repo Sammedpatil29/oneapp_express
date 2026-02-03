@@ -4,6 +4,13 @@ const jwt = require('jsonwebtoken');
 const admin = require('firebase-admin');
 const User = require('../models/customUserModel');
 const { sendFcmNotification } = require('../utils/fcmSender');
+const Razorpay = require('razorpay');
+
+// Initialize Razorpay
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_S5RLYqr6y2I6xs',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || 'q2lFxfOyVyAkD1GQMbitqNre',
+});
 
 exports.createDineoutOrder = async (req, res) => {
   try {
@@ -57,6 +64,170 @@ exports.createDineoutOrder = async (req, res) => {
     res.status(201).json({ success: true, message: 'Order placed successfully', data: responseData });
   } catch (error) {
     console.error('Error creating dineout order:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.createDineoutPayment = async (req, res) => {
+  try {
+    // 1. Verify Token
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    let userId;
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+      userId = decoded.id;
+    } catch (err) {
+      return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+
+    const { billAmount, restaurantId, bookingId } = req.body;
+
+    if (!billAmount) {
+      return res.status(400).json({ success: false, message: 'Bill amount is required' });
+    }
+
+    let order;
+
+    // 2. Handle Booking ID (Existing Order)
+    if (bookingId) {
+      order = await DineoutOrder.findByPk(bookingId);
+      if (!order) {
+        return res.status(404).json({ success: false, message: 'Order not found' });
+      }
+      // Update bill details with the final amount being paid
+      order.bill_details = {
+        ...order.bill_details,
+        finalPayable: billAmount
+      };
+    } 
+    // 3. Handle Restaurant ID (Walk-in / No Booking)
+    else if (restaurantId) {
+      const restaurant = await Dineout.findByPk(restaurantId);
+      if (!restaurant) {
+        return res.status(404).json({ success: false, message: 'Restaurant not found' });
+      }
+
+      // Create a new order for this payment
+      order = await DineoutOrder.create({
+        user_id: userId,
+        restaurant_id: restaurantId,
+        restaurant_name: restaurant.name,
+        guest_count: 1, // Default for walk-in payment
+        booking_date: new Date().toISOString().split('T')[0],
+        time_slot: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+        bill_details: { grandTotal: billAmount },
+        status: 'PENDING_PAYMENT'
+      });
+    } else {
+      return res.status(400).json({ success: false, message: 'Either Booking ID or Restaurant ID is required' });
+    }
+
+    // 4. Create Razorpay Order
+    const amountInPaise = Math.round(parseFloat(billAmount) * 100);
+    const options = {
+      amount: amountInPaise,
+      currency: "INR",
+      receipt: `dineout_rcpt_${order.id}_${Date.now()}`,
+      notes: {
+        order_id: order.id,
+        user_id: userId
+      }
+    };
+
+    const razorpayOrder = await razorpay.orders.create(options);
+
+    if (!razorpayOrder) {
+      return res.status(500).json({ success: false, message: 'Razorpay order creation failed' });
+    }
+
+    // 5. Update Order with Razorpay ID
+    order.razorpay_order_id = razorpayOrder.id;
+    order.status = 'PENDING_PAYMENT';
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      internal_order_id: order.id,
+      razorpay_order_id: razorpayOrder.id,
+      amount: parseFloat(billAmount),
+      currency: "INR"
+    });
+
+  } catch (error) {
+    console.error('Create Dineout Payment Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.verifyDineoutPayment = async (req, res) => {
+  try {
+    const { orderId } = req.body; // Internal Order ID
+
+    const order = await DineoutOrder.findByPk(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.status === 'PAID' || order.status === 'COMPLETED') {
+      return res.status(200).json({ success: true, status: 'paid', order });
+    }
+
+    if (order.razorpay_order_id) {
+      const payments = await razorpay.orders.fetchPayments(order.razorpay_order_id);
+      const paidPayment = payments.items.find(p => p.status === 'captured');
+
+      if (paidPayment) {
+        // 1. Update Order Status
+        order.status = 'PAID';
+        order.razorpay_payment_id = paidPayment.id;
+        await order.save();
+
+        // 2. Calculate Commission & Credit Restaurant
+        // Amount paid by user (in Rupees)
+        const amountPaid = parseFloat(paidPayment.amount) / 100;
+        const commission = amountPaid * 0.06; // 6% Commission
+        const creditAmount = amountPaid - commission;
+
+        const restaurant = await Dineout.findByPk(order.restaurant_id);
+        if (restaurant) {
+          // Update Earnings
+          const currentEarnings = parseFloat(restaurant.earnings || 0);
+          restaurant.earnings = currentEarnings + creditAmount;
+
+          // Add Transaction Record
+          const newTransaction = {
+            type: 'CREDIT',
+            amount: parseFloat(creditAmount.toFixed(2)),
+            description: `Bill Payment (Order #${order.id}) - Commission Deducted`,
+            orderId: order.id,
+            date: new Date()
+          };
+
+          const currentTransactions = Array.isArray(restaurant.transactions) ? restaurant.transactions : [];
+          restaurant.transactions = [...currentTransactions, newTransaction];
+
+          await restaurant.save();
+        }
+
+        // 3. Send Notification
+        const user = await User.findByPk(order.user_id);
+        if (user && user.fcm_token) {
+          sendFcmNotification(user.fcm_token, 'Payment Successful! 🍽️', `Your bill of ₹${amountPaid} has been paid successfully.`).catch(e => console.error(e));
+        }
+
+        return res.status(200).json({ success: true, status: 'paid', order });
+      }
+    }
+
+    res.status(200).json({ success: true, status: order.status });
+
+  } catch (error) {
+    console.error('Verify Dineout Payment Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -427,6 +598,44 @@ exports.verifyBill = async (req, res) => {
       // Ensure discount doesn't exceed amount
       if (discount > originalAmount) discount = originalAmount;
       const finalAmount = originalAmount - discount;
+
+      // Calculate Commission (6%) and Deduct from Restaurant Earnings
+      const commission = originalAmount * 0.06;
+      const restaurant = await Dineout.findByPk(order.restaurant_id);
+
+      if (restaurant) {
+        const newTransactions = [];
+
+        // 1. Commission Transaction
+        newTransactions.push({
+          type: 'DEBIT',
+          amount: parseFloat(commission.toFixed(2)),
+          description: 'Commission (6%)',
+          orderId: order.id,
+          date: new Date()
+        });
+
+        // 2. Discount Transaction
+        if (discount > 0) {
+          newTransactions.push({
+            type: 'DEBIT',
+            amount: parseFloat(discount.toFixed(2)),
+            description: 'User Discount',
+            orderId: order.id,
+            date: new Date()
+          });
+        }
+
+        // Update Earnings
+        const currentEarnings = parseFloat(restaurant.earnings || 0);
+        restaurant.earnings = currentEarnings - commission - discount;
+
+        // Update Transactions
+        const currentTransactions = Array.isArray(restaurant.transactions) ? restaurant.transactions : [];
+        restaurant.transactions = [...currentTransactions, ...newTransactions];
+
+        await restaurant.save();
+      }
 
       // Update Order with calculations
       order.bill_details = {
