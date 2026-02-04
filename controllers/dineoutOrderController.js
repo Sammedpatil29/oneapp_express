@@ -633,17 +633,17 @@ exports.getDineoutOrderDetails = async (req, res) => {
       grandTotal: rawBill.grandTotal || "0.00",
       totalAmount: 0,
       verification: {
-        discount: rawBill.discount || "0.00",
-        verifiedAt: rawBill.verifiedAt || null,
-        finalAmount: rawBill.finalAmount || rawBill.grandTotal || "0.00",
-        originalAmount: rawBill.originalAmount || rawBill.grandTotal || "0.00"
+        discount: verif.discount || "0.00",
+        verifiedAt: verif.verifiedAt || null,
+        finalAmount: verif.finalAmount || verif.grandTotal || "0.00",
+        originalAmount: verif.originalAmount || verif.grandTotal || "0.00"
       },
       coverChargePerHead: rawBill.coverChargePerHead || 0
     };
 
     const responseData = {
       ...order.toJSON(),
-      bill_details: formattedBillDetails,
+      bill_details: order.bill_details,
       coords: restaurant ? { lat: restaurant.lat, lng: restaurant.lng } : {},
       contact: restaurant ? restaurant.contact : null,
       info: info
