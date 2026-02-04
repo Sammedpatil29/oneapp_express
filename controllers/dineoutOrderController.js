@@ -212,6 +212,12 @@ exports.verifyDineoutPayment = async (req, res) => {
         const activePayment = payments.items.find(p => p.status === 'created' || p.status === 'authorized');
 
         if (paidPayment) {
+          // Prevent duplicate processing
+          await order.reload();
+          if (order.status === 'COMPLETED' || order.status === 'PAID') {
+            return res.status(200).json({ success: true, status: 'paid', order });
+          }
+
           // 1. Update Order Status
           order.status = 'COMPLETED';
           order.razorpay_payment_id = paidPayment.id;
@@ -250,26 +256,31 @@ exports.verifyDineoutPayment = async (req, res) => {
 
           const restaurant = await Dineout.findByPk(order.restaurant_id);
           if (restaurant) {
-            // Update Earnings
-            const currentEarnings = parseFloat(restaurant.earnings || 0);
-            restaurant.earnings = currentEarnings + creditAmount;
-
-            // Add Transaction Record
-            const newTransaction = {
-              type: 'CREDIT',
-              amount: parseFloat(creditAmount.toFixed(2)),
-              description: `Bill Payment (Order #${order.id}) - Commission Deducted`,
-              orderId: order.id,
-            date: new Date(),
-            originalAmount: parseFloat((amountPaid + userSavings).toFixed(2)),
-            customerDiscount: parseFloat(userSavings.toFixed(2)),
-            commission: parseFloat(commission.toFixed(2))
-            };
-
             const currentTransactions = Array.isArray(restaurant.transactions) ? restaurant.transactions : [];
-            restaurant.transactions = [...currentTransactions, newTransaction];
+            
+            // Check if transaction already exists
+            const transactionExists = currentTransactions.some(t => t.orderId === order.id && t.type === 'CREDIT');
 
-            await restaurant.save();
+            if (!transactionExists) {
+              // Update Earnings
+              const currentEarnings = parseFloat(restaurant.earnings || 0);
+              restaurant.earnings = currentEarnings + creditAmount;
+
+              // Add Transaction Record
+              const newTransaction = {
+                type: 'CREDIT',
+                amount: parseFloat(creditAmount.toFixed(2)),
+                description: `Bill Payment (Order #${order.id}) - Commission Deducted`,
+                orderId: order.id,
+                date: new Date(),
+                originalAmount: parseFloat((amountPaid + userSavings).toFixed(2)),
+                customerDiscount: parseFloat(userSavings.toFixed(2)),
+                commission: parseFloat(commission.toFixed(2))
+              };
+
+              restaurant.transactions = [...currentTransactions, newTransaction];
+              await restaurant.save();
+            }
           }
 
           // 4. Send Notification
