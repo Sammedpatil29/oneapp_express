@@ -1,6 +1,7 @@
 const Booking = require('../models/bookingModel');
 const Event = require('../models/eventsModel');
 const DineoutOrder = require('../models/dineoutOrderModel');
+const GroceryOrder = require('../models/groceryOrderModel');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 
@@ -77,6 +78,33 @@ exports.getHistory = async (req, res) => {
       });
 
       historyData = [...historyData, ...dineoutHistory];
+    }
+
+    // 3. Fetch Grocery Orders
+    if (!type || type === 'grocery' || type === 'all') {
+      const groceryOrders = await GroceryOrder.findAll({
+        where: { user_id: userId },
+        order: [['createdAt', 'DESC']]
+      });
+
+      const groceryHistory = groceryOrders.map(order => {
+        const bill = order.bill_details || {};
+        const cost = bill.toPay || 0;
+        
+        const itemCount = Array.isArray(order.cart_items) ? order.cart_items.length : 0;
+
+        return {
+          id: order.id,
+          type: 'grocery',
+          title: `Grocery Order (${itemCount} items)`,
+          created_at: order.createdAt,
+          status: order.status,
+          finalCost: cost,
+          user: order.user_id
+        };
+      });
+
+      historyData = [...historyData, ...groceryHistory];
     }
 
     // Sort combined data by createdAt DESC (Newest first)
