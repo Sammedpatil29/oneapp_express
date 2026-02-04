@@ -178,50 +178,68 @@ exports.verifyDineoutPayment = async (req, res) => {
     }
 
     if (order.razorpay_order_id) {
-      const payments = await razorpay.orders.fetchPayments(order.razorpay_order_id);
-      const paidPayment = payments.items.find(p => p.status === 'captured');
+      const startTime = Date.now();
+      const TIMEOUT = 60000; // 60 seconds
 
-      if (paidPayment) {
-        // 1. Update Order Status
-        order.status = 'COMPLETED';
-        order.razorpay_payment_id = paidPayment.id;
-        await order.save();
+      while (Date.now() - startTime < TIMEOUT) {
+        const payments = await razorpay.orders.fetchPayments(order.razorpay_order_id);
+        const paidPayment = payments.items.find(p => p.status === 'captured');
+        const failedPayment = payments.items.find(p => p.status === 'failed');
+        const activePayment = payments.items.find(p => p.status === 'created' || p.status === 'authorized');
 
-        // 2. Calculate Commission & Credit Restaurant
-        // Amount paid by user (in Rupees)
-        const amountPaid = parseFloat(paidPayment.amount) / 100;
-        const commission = amountPaid * 0.06; // 6% Commission
-        const creditAmount = amountPaid - commission;
+        if (paidPayment) {
+          // 1. Update Order Status
+          order.status = 'COMPLETED';
+          order.razorpay_payment_id = paidPayment.id;
+          await order.save();
 
-        const restaurant = await Dineout.findByPk(order.restaurant_id);
-        if (restaurant) {
-          // Update Earnings
-          const currentEarnings = parseFloat(restaurant.earnings || 0);
-          restaurant.earnings = currentEarnings + creditAmount;
+          // 2. Calculate Commission & Credit Restaurant
+          // Amount paid by user (in Rupees)
+          const amountPaid = parseFloat(paidPayment.amount) / 100;
+          const commission = amountPaid * 0.06; // 6% Commission
+          const creditAmount = amountPaid - commission;
 
-          // Add Transaction Record
-          const newTransaction = {
-            type: 'CREDIT',
-            amount: parseFloat(creditAmount.toFixed(2)),
-            description: `Bill Payment (Order #${order.id}) - Commission Deducted`,
-            orderId: order.id,
-            date: new Date()
-          };
+          const restaurant = await Dineout.findByPk(order.restaurant_id);
+          if (restaurant) {
+            // Update Earnings
+            const currentEarnings = parseFloat(restaurant.earnings || 0);
+            restaurant.earnings = currentEarnings + creditAmount;
 
-          const currentTransactions = Array.isArray(restaurant.transactions) ? restaurant.transactions : [];
-          restaurant.transactions = [...currentTransactions, newTransaction];
+            // Add Transaction Record
+            const newTransaction = {
+              type: 'CREDIT',
+              amount: parseFloat(creditAmount.toFixed(2)),
+              description: `Bill Payment (Order #${order.id}) - Commission Deducted`,
+              orderId: order.id,
+              date: new Date()
+            };
 
-          await restaurant.save();
+            const currentTransactions = Array.isArray(restaurant.transactions) ? restaurant.transactions : [];
+            restaurant.transactions = [...currentTransactions, newTransaction];
+
+            await restaurant.save();
+          }
+
+          // 3. Send Notification
+          const user = await User.findByPk(order.user_id);
+          if (user && user.fcm_token) {
+            sendFcmNotification(user.fcm_token, 'Payment Successful! 🍽️', `Your bill of ₹${amountPaid} has been paid successfully.`).catch(e => console.error(e));
+          }
+
+          return res.status(200).json({ success: true, status: 'paid', order });
         }
 
-        // 3. Send Notification
-        const user = await User.findByPk(order.user_id);
-        if (user && user.fcm_token) {
-          sendFcmNotification(user.fcm_token, 'Payment Successful! 🍽️', `Your bill of ₹${amountPaid} has been paid successfully.`).catch(e => console.error(e));
+        // If we found a failed payment and no other active payments, return failed
+        if (failedPayment && !activePayment) {
+          return res.status(200).json({ success: false, status: 'failed', message: 'Payment failed' });
         }
 
-        return res.status(200).json({ success: true, status: 'paid', order });
+        // Wait 2 seconds before next poll
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
+      
+      // Timeout reached
+      return res.status(200).json({ success: true, status: 'pending', message: 'Payment verification timed out' });
     }
 
     res.status(200).json({ success: true, status: order.status });
