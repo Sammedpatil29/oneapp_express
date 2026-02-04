@@ -2,6 +2,12 @@ const GroceryOrder = require('../models/groceryOrderModel');
 const GroceryItem = require('../models/groceryItem');
 const GroceryCartItem = require('../models/groceryCartItem');
 const jwt = require('jsonwebtoken');
+const Razorpay = require('razorpay');
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_S5RLYqr6y2I6xs',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || 'q2lFxfOyVyAkD1GQMbitqNre',
+});
 
 /**
  * Create a new Grocery Order
@@ -52,6 +58,30 @@ exports.createOrder = async (req, res) => {
       status: status || 'PENDING'
     });
 
+    // 4. Handle Online Payment (Create Razorpay Order)
+    if (paymentDetails && paymentDetails.mode === 'online') {
+      const amount = Math.round(parseFloat(billDetails.toPay) * 100); // Amount in paise
+      const options = {
+        amount: amount,
+        currency: "INR",
+        receipt: `grocery_rcpt_${order.id}`,
+        notes: { order_id: order.id, user_id: userId, type: 'grocery' }
+      };
+
+      const rzpOrder = await razorpay.orders.create(options);
+      
+      order.razorpay_order_id = rzpOrder.id;
+      await order.save();
+
+      return res.status(201).json({
+        success: true,
+        internal_order_id: order.id, // Direct ID, no prefix needed since logic is local
+        razorpay_order_id: rzpOrder.id,
+        amount: billDetails.toPay,
+        currency: "INR"
+      });
+    }
+
     // 4. Handle COD Logic (Reduce Stock & Clear Cart)
     if (paymentDetails && paymentDetails.mode === 'cod') {
       // Reduce Stock
@@ -74,6 +104,64 @@ exports.createOrder = async (req, res) => {
     res.status(201).json({ success: true, message: 'Order placed successfully', data: order });
   } catch (error) {
     console.error('Error creating grocery order:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Verify Payment Status for Grocery Order
+ * POST /api/grocery-order/verify-payment
+ * Body: { orderId: <internal_order_id> }
+ */
+exports.verifyPayment = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    const order = await GroceryOrder.findByPk(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // If already paid, return success immediately
+    if (order.status === 'PAID' || order.status === 'CONFIRMED') {
+      return res.status(200).json({ success: true, status: 'paid', order });
+    }
+
+    // Check Razorpay Status
+    if (order.razorpay_order_id) {
+      const payments = await razorpay.orders.fetchPayments(order.razorpay_order_id);
+      const paidPayment = payments.items.find(p => p.status === 'captured');
+
+      if (paidPayment) {
+        // 1. Update Order
+        order.status = 'PAID';
+        order.razorpay_payment_id = paidPayment.id;
+        await order.save();
+
+        // 2. Reduce Stock
+        const cartItems = order.cart_items;
+        if (Array.isArray(cartItems)) {
+          for (const item of cartItems) {
+            if (item.productId && item.quantity) {
+              const product = await GroceryItem.findByPk(item.productId);
+              if (product) {
+                const newStock = product.stock - item.quantity;
+                await product.update({ stock: newStock >= 0 ? newStock : 0 });
+              }
+            }
+          }
+        }
+
+        // 3. Clear Cart
+        await GroceryCartItem.destroy({ where: { user_id: order.user_id } });
+
+        return res.status(200).json({ success: true, status: 'paid', order });
+      }
+    }
+
+    return res.status(200).json({ success: true, status: 'pending', message: 'Payment not yet captured' });
+  } catch (error) {
+    console.error('Error verifying grocery payment:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
