@@ -633,10 +633,10 @@ exports.getDineoutOrderDetails = async (req, res) => {
       grandTotal: rawBill.grandTotal || "0.00",
       totalAmount: 0,
       verification: {
-        discount: verif.discount || "0.00",
-        verifiedAt: verif.verifiedAt || null,
-        finalAmount: verif.finalAmount || rawBill.grandTotal || "0.00",
-        originalAmount: verif.originalAmount || rawBill.grandTotal || "0.00"
+        discount: rawBill.discount || "0.00",
+        verifiedAt: rawBill.verifiedAt || null,
+        finalAmount: rawBill.finalAmount || rawBill.grandTotal || "0.00",
+        originalAmount: rawBill.originalAmount || rawBill.grandTotal || "0.00"
       },
       coverChargePerHead: rawBill.coverChargePerHead || 0
     };
