@@ -1,4 +1,6 @@
 const GroceryOrder = require('../models/groceryOrderModel');
+const GroceryItem = require('../models/groceryItem');
+const GroceryCartItem = require('../models/groceryCartItem');
 const jwt = require('jsonwebtoken');
 
 /**
@@ -9,6 +11,8 @@ const jwt = require('jsonwebtoken');
  *   cartItems: Object (Required),
  *   billDetails: Object (Required),
  *   address: Object (Required),
+ *   paymentDetails: Object (Optional),
+ *   riderDetails: Object (Optional),
  *   status: String (Optional, default: 'PENDING')
  * }
  */
@@ -31,7 +35,7 @@ exports.createOrder = async (req, res) => {
     }
 
     // 2. Extract Data
-    const { cartItems, billDetails, address, status } = req.body;
+    const { cartItems, billDetails, address, status, paymentDetails, riderDetails } = req.body;
 
     if (!cartItems || !billDetails || !address) {
       return res.status(400).json({ success: false, message: 'Cart items, bill details, and address are required' });
@@ -43,8 +47,29 @@ exports.createOrder = async (req, res) => {
       cart_items: cartItems,
       bill_details: billDetails,
       address: address,
+      payment_details: paymentDetails,
+      rider_details: riderDetails,
       status: status || 'PENDING'
     });
+
+    // 4. Handle COD Logic (Reduce Stock & Clear Cart)
+    if (paymentDetails && paymentDetails.mode === 'cod') {
+      // Reduce Stock
+      if (Array.isArray(cartItems)) {
+        for (const item of cartItems) {
+          if (item.productId && item.quantity) {
+            const product = await GroceryItem.findByPk(item.productId);
+            if (product) {
+              const newStock = product.stock - item.quantity;
+              await product.update({ stock: newStock >= 0 ? newStock : 0 });
+            }
+          }
+        }
+      }
+
+      // Clear Cart
+      await GroceryCartItem.destroy({ where: { user_id: userId } });
+    }
 
     res.status(201).json({ success: true, message: 'Order placed successfully', data: order });
   } catch (error) {

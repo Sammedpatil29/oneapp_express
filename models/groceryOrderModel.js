@@ -28,6 +28,14 @@ const GroceryOrder = sequelize.define('GroceryOrder', {
     type: DataTypes.JSONB,
     allowNull: false,
   },
+  payment_details: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+  },
+  rider_details: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+  },
   status: {
     type: DataTypes.STRING,
     defaultValue: 'PENDING'
