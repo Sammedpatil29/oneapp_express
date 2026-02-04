@@ -85,7 +85,7 @@ exports.createDineoutPayment = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid token' });
     }
 
-    const { billAmount, restaurantId, bookingId } = req.body;
+    const { billAmount, restaurantId, bookingId, discount } = req.body;
 
     if (!billAmount) {
       return res.status(400).json({ success: false, message: 'Bill amount is required' });
@@ -100,10 +100,19 @@ exports.createDineoutPayment = async (req, res) => {
         return res.status(404).json({ success: false, message: 'Order not found' });
       }
       // Update bill details with the final amount being paid
+      const discountVal = parseFloat(discount || 0);
+      const payAmount = parseFloat(billAmount);
       order.bill_details = {
         ...order.bill_details,
-        toPay: parseFloat(billAmount).toFixed(2),
-        grandTotal: parseFloat(billAmount).toFixed(2)
+        toPay: payAmount.toFixed(2),
+        grandTotal: payAmount.toFixed(2),
+        verification: {
+          ...(order.bill_details.verification || {}),
+          discount: discountVal.toFixed(2),
+          finalAmount: payAmount.toFixed(2),
+          originalAmount: (payAmount + discountVal).toFixed(2),
+          verifiedAt: new Date()
+        }
       };
     } 
     // 3. Handle Restaurant ID (Walk-in / No Booking)
@@ -112,6 +121,9 @@ exports.createDineoutPayment = async (req, res) => {
       if (!restaurant) {
         return res.status(404).json({ success: false, message: 'Restaurant not found' });
       }
+
+      const discountVal = parseFloat(discount || 0);
+      const payAmount = parseFloat(billAmount);
 
       // Create a new order for this payment
       order = await DineoutOrder.create({
@@ -122,15 +134,15 @@ exports.createDineoutPayment = async (req, res) => {
         booking_date: new Date().toISOString().split('T')[0],
         time_slot: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
         bill_details: {
-          toPay: parseFloat(billAmount).toFixed(2),
-          grandTotal: parseFloat(billAmount).toFixed(2),
+          toPay: payAmount.toFixed(2),
+          grandTotal: payAmount.toFixed(2),
           totalAmount: 0,
           coverChargePerHead: 0,
           verification: {
-            discount: "0.00",
+            discount: discountVal.toFixed(2),
             verifiedAt: new Date(),
-            finalAmount: parseFloat(billAmount).toFixed(2),
-            originalAmount: parseFloat(billAmount).toFixed(2)
+            finalAmount: payAmount.toFixed(2),
+            originalAmount: (payAmount + discountVal).toFixed(2)
           }
         },
         status: 'PENDING_PAYMENT'
