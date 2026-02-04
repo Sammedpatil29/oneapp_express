@@ -57,6 +57,14 @@ const User = sequelize.define('User', {
     type: DataTypes.ENUM('user', 'provider', 'admin'),
     defaultValue: 'user',
   },
+  total_savings: {
+    type: DataTypes.FLOAT,
+    defaultValue: 0,
+  },
+  savings_transactions: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+  },
 }, {
   timestamps: false, // or true if you want Sequelize to manage createdAt/updatedAt
   tableName: 'user_customuser', // optional, to match Django table naming

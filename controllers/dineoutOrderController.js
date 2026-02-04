@@ -102,7 +102,8 @@ exports.createDineoutPayment = async (req, res) => {
       // Update bill details with the final amount being paid
       order.bill_details = {
         ...order.bill_details,
-        finalPayable: billAmount
+        toPay: parseFloat(billAmount).toFixed(2),
+        grandTotal: parseFloat(billAmount).toFixed(2)
       };
     } 
     // 3. Handle Restaurant ID (Walk-in / No Booking)
@@ -120,7 +121,18 @@ exports.createDineoutPayment = async (req, res) => {
         guest_count: 1, // Default for walk-in payment
         booking_date: new Date().toISOString().split('T')[0],
         time_slot: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-        bill_details: { grandTotal: billAmount },
+        bill_details: {
+          toPay: parseFloat(billAmount).toFixed(2),
+          grandTotal: parseFloat(billAmount).toFixed(2),
+          totalAmount: 0,
+          coverChargePerHead: 0,
+          verification: {
+            discount: "0.00",
+            verifiedAt: new Date(),
+            finalAmount: parseFloat(billAmount).toFixed(2),
+            originalAmount: parseFloat(billAmount).toFixed(2)
+          }
+        },
         status: 'PENDING_PAYMENT'
       });
     } else {
@@ -199,6 +211,31 @@ exports.verifyDineoutPayment = async (req, res) => {
           const commission = amountPaid * 0.06; // 6% Commission
           const creditAmount = amountPaid - commission;
 
+          // 3. Calculate and Update User Savings
+          let userSavings = 0;
+          if (order.offer_applied) {
+            const offer = order.offer_applied;
+            const val = parseFloat(offer.value || 0);
+            const type = (offer.type || '').toUpperCase();
+            const maxDisc = parseFloat(offer.max_discount || 0);
+
+            if (type === 'FLAT') {
+              userSavings = val;
+            } else if ((type === 'PERCENT' || type === 'PERCENTAGE') && val < 100) {
+              // Reverse calculate original amount: Paid = Original * (1 - rate)
+              const original = amountPaid / (1 - (val / 100));
+              userSavings = original - amountPaid;
+              
+              if (maxDisc > 0 && userSavings > maxDisc) {
+                userSavings = maxDisc;
+              }
+            }
+          }
+
+          if (userSavings > 0) {
+            await updateUserSavings(order.user_id, userSavings, order.restaurant_name, order.id);
+          }
+
           const restaurant = await Dineout.findByPk(order.restaurant_id);
           if (restaurant) {
             // Update Earnings
@@ -211,7 +248,10 @@ exports.verifyDineoutPayment = async (req, res) => {
               amount: parseFloat(creditAmount.toFixed(2)),
               description: `Bill Payment (Order #${order.id}) - Commission Deducted`,
               orderId: order.id,
-              date: new Date()
+            date: new Date(),
+            originalAmount: parseFloat((amountPaid + userSavings).toFixed(2)),
+            customerDiscount: parseFloat(userSavings.toFixed(2)),
+            commission: parseFloat(commission.toFixed(2))
             };
 
             const currentTransactions = Array.isArray(restaurant.transactions) ? restaurant.transactions : [];
@@ -220,7 +260,7 @@ exports.verifyDineoutPayment = async (req, res) => {
             await restaurant.save();
           }
 
-          // 3. Send Notification
+          // 4. Send Notification
           const user = await User.findByPk(order.user_id);
           if (user && user.fcm_token) {
             sendFcmNotification(user.fcm_token, 'Payment Successful! 🍽️', `Your bill of ₹${amountPaid} has been paid successfully.`).catch(e => console.error(e));
@@ -408,6 +448,15 @@ exports.calculateBillOffers = async (req, res) => {
       }
     }
 
+    // Check if user is new (has no completed orders)
+    const completedOrdersCount = await DineoutOrder.count({
+      where: {
+        user_id: userId,
+        status: 'COMPLETED'
+      }
+    });
+    const isNewUser = completedOrdersCount === 0;
+
     // 3. Calculation Loop (Updated for your JSON structure)
     for (const offer of offers) {
       // Map JSON keys to variables
@@ -417,6 +466,12 @@ exports.calculateBillOffers = async (req, res) => {
       
       // Normalize type to Uppercase for comparison (FLAT, PERCENT)
       const type = (offer.type || '').toUpperCase(); 
+
+      // Check applicable_for
+      const applicableFor = (offer.applicable_for || 'ALL_USER').toUpperCase();
+      if (applicableFor === 'NEW_USER' && !isNewUser) {
+        continue;
+      }
 
       // Check Eligibility: Bill Amount must be >= Min Bill Amount
       if (amount >= minBillAmount) {
@@ -617,6 +672,11 @@ exports.verifyBill = async (req, res) => {
       if (discount > originalAmount) discount = originalAmount;
       const finalAmount = originalAmount - discount;
 
+      // Update User Savings
+      if (discount > 0) {
+        await updateUserSavings(order.user_id, discount, order.restaurant_name, order.id);
+      }
+
       // Calculate Commission (6%) and Deduct from Restaurant Earnings
       const commission = originalAmount * 0.06;
       const restaurant = await Dineout.findByPk(order.restaurant_id);
@@ -630,7 +690,10 @@ exports.verifyBill = async (req, res) => {
           amount: parseFloat(commission.toFixed(2)),
           description: 'Commission (6%)',
           orderId: order.id,
-          date: new Date()
+          date: new Date(),
+          originalAmount: parseFloat(originalAmount.toFixed(2)),
+          customerDiscount: parseFloat(discount.toFixed(2)),
+          commission: parseFloat(commission.toFixed(2))
         });
 
         // 2. Discount Transaction
@@ -640,7 +703,10 @@ exports.verifyBill = async (req, res) => {
             amount: parseFloat(discount.toFixed(2)),
             description: 'User Discount',
             orderId: order.id,
-            date: new Date()
+            date: new Date(),
+            originalAmount: parseFloat(originalAmount.toFixed(2)),
+            customerDiscount: parseFloat(discount.toFixed(2)),
+            commission: parseFloat(commission.toFixed(2))
           });
         }
 
@@ -658,13 +724,15 @@ exports.verifyBill = async (req, res) => {
       // Update Order with calculations
       order.bill_details = {
         ...order.bill_details,
-        totalAmount: finalAmount.toFixed(2), // Update root fields so History API sees the verified cost
         toPay: finalAmount.toFixed(2),
+        grandTotal: finalAmount.toFixed(2),
+        totalAmount: 0,
+        coverChargePerHead: order.bill_details.coverChargePerHead || 0,
         verification: {
-          originalAmount: originalAmount.toFixed(2),
           discount: discount.toFixed(2),
+          verifiedAt: new Date(),
           finalAmount: finalAmount.toFixed(2),
-          verifiedAt: new Date()
+          originalAmount: originalAmount.toFixed(2)
         }
       };
       order.status = 'COMPLETED';
@@ -706,6 +774,32 @@ exports.verifyBill = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// Helper function to update user savings
+async function updateUserSavings(userId, amount, restaurantName, orderId) {
+  try {
+    const user = await User.findByPk(userId);
+    if (user) {
+      const currentSavings = parseFloat(user.total_savings || 0);
+      user.total_savings = currentSavings + amount;
+
+      const newTransaction = {
+        amount: parseFloat(amount.toFixed(2)),
+        restaurantName: restaurantName,
+        orderId: orderId,
+        date: new Date(),
+        type: 'DINEOUT_DISCOUNT'
+      };
+
+      const currentTransactions = Array.isArray(user.savings_transactions) ? user.savings_transactions : [];
+      user.savings_transactions = [newTransaction, ...currentTransactions];
+
+      await user.save();
+    }
+  } catch (err) {
+    console.error('Error updating user savings:', err);
+  }
+}
 
 exports.cancelDineoutOrder = async (req, res) => {
   try {
