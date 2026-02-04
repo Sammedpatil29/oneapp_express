@@ -705,43 +705,49 @@ exports.verifyBill = async (req, res) => {
       const restaurant = await Dineout.findByPk(order.restaurant_id);
 
       if (restaurant) {
-        const newTransactions = [];
+        const currentTransactions = Array.isArray(restaurant.transactions) ? restaurant.transactions : [];
+        
+        // Check if transaction already exists
+        const transactionExists = currentTransactions.some(t => t.orderId === order.id && t.type === 'DEBIT');
 
-        // 1. Commission Transaction
-        newTransactions.push({
-          type: 'DEBIT',
-          amount: parseFloat(commission.toFixed(2)),
-          description: 'Commission (6%)',
-          orderId: order.id,
-          date: new Date(),
-          originalAmount: parseFloat(originalAmount.toFixed(2)),
-          customerDiscount: parseFloat(discount.toFixed(2)),
-          commission: parseFloat(commission.toFixed(2))
-        });
+        if (!transactionExists) {
+          const newTransactions = [];
 
-        // 2. Discount Transaction
-        if (discount > 0) {
+          // 1. Commission Transaction
           newTransactions.push({
             type: 'DEBIT',
-            amount: parseFloat(discount.toFixed(2)),
-            description: 'User Discount',
+            amount: parseFloat(commission.toFixed(2)),
+            description: 'Commission (6%)',
             orderId: order.id,
             date: new Date(),
             originalAmount: parseFloat(originalAmount.toFixed(2)),
             customerDiscount: parseFloat(discount.toFixed(2)),
             commission: parseFloat(commission.toFixed(2))
           });
+
+          // 2. Discount Transaction
+          if (discount > 0) {
+            newTransactions.push({
+              type: 'DEBIT',
+              amount: parseFloat(discount.toFixed(2)),
+              description: 'User Discount',
+              orderId: order.id,
+              date: new Date(),
+              originalAmount: parseFloat(originalAmount.toFixed(2)),
+              customerDiscount: parseFloat(discount.toFixed(2)),
+              commission: parseFloat(commission.toFixed(2))
+            });
+          }
+
+          // Update Earnings
+          const currentEarnings = parseFloat(restaurant.earnings || 0);
+          restaurant.earnings = currentEarnings - commission - discount;
+
+          // Update Transactions
+          restaurant.transactions = [...currentTransactions, ...newTransactions];
+
+          await restaurant.save();
         }
-
-        // Update Earnings
-        const currentEarnings = parseFloat(restaurant.earnings || 0);
-        restaurant.earnings = currentEarnings - commission - discount;
-
-        // Update Transactions
-        const currentTransactions = Array.isArray(restaurant.transactions) ? restaurant.transactions : [];
-        restaurant.transactions = [...currentTransactions, ...newTransactions];
-
-        await restaurant.save();
       }
 
       // Update Order with calculations
