@@ -624,8 +624,26 @@ exports.getDineoutOrderDetails = async (req, res) => {
       }
 
     const restaurant = await Dineout.findByPk(order.restaurant_id);
+
+    // Ensure bill_details follows the specific pattern
+    const rawBill = order.bill_details || {};
+    const verif = rawBill.verification || {};
+    const formattedBillDetails = {
+      toPay: rawBill.toPay || rawBill.grandTotal || "0.00",
+      grandTotal: rawBill.grandTotal || "0.00",
+      totalAmount: 0,
+      verification: {
+        discount: verif.discount || "0.00",
+        verifiedAt: verif.verifiedAt || null,
+        finalAmount: verif.finalAmount || rawBill.grandTotal || "0.00",
+        originalAmount: verif.originalAmount || rawBill.grandTotal || "0.00"
+      },
+      coverChargePerHead: rawBill.coverChargePerHead || 0
+    };
+
     const responseData = {
       ...order.toJSON(),
+      bill_details: formattedBillDetails,
       coords: restaurant ? { lat: restaurant.lat, lng: restaurant.lng } : {},
       contact: restaurant ? restaurant.contact : null,
       info: info
