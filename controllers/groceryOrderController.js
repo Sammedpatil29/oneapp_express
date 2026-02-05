@@ -195,6 +195,74 @@ exports.getOrders = async (req, res) => {
 };
 
 /**
+ * Cancel Grocery Order
+ * POST /api/grocery-order/cancel
+ * Body: { orderId: <id> }
+ */
+exports.cancelOrder = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    let userId;
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+      userId = decoded.id;
+    } catch (err) {
+      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    const { orderId } = req.body;
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: 'Order ID is required' });
+    }
+
+    const order = await GroceryOrder.findByPk(orderId);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.user_id !== userId) {
+      return res.status(403).json({ success: false, message: 'Unauthorized access to this order' });
+    }
+
+    if (order.status === 'CANCELLED') {
+      return res.status(200).json({ success: true, data: order });
+    }
+
+    // Restore Stock Logic: If COD or PAID, stock was previously reduced, so we add it back.
+    const isCod = order.payment_details && order.payment_details.mode === 'cod';
+    const isPaid = order.status === 'PAID';
+
+    if (isCod || isPaid) {
+      const cartItems = order.cart_items;
+      if (Array.isArray(cartItems)) {
+        for (const item of cartItems) {
+          if (item.productId && item.quantity) {
+            const product = await GroceryItem.findByPk(item.productId);
+            if (product) {
+              await product.update({ stock: product.stock + item.quantity });
+            }
+          }
+        }
+      }
+    }
+
+    order.status = 'CANCELLED';
+    await order.save();
+
+    res.status(200).json({ success: true, data: order });
+  } catch (error) {
+    console.error('Error cancelling grocery order:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * Get a specific Grocery Order by ID
  * GET /api/grocery-order/:id
  * Headers: Authorization: Bearer <token>
