@@ -253,6 +253,7 @@ exports.cancelOrder = async (req, res) => {
     }
 
     order.status = 'CANCELLED';
+    order.rider_details = null;
     await order.save();
 
     res.status(200).json({ success: true, data: order });
