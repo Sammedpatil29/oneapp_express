@@ -24,7 +24,7 @@ exports.createAdmin = async (req, res) => {
     }
 
     // Hash the password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(String(password).trim(), 10);
 
     // Create Admin
     const newAdmin = await AdminUser.create({
@@ -90,8 +90,8 @@ exports.updateAdmin = async (req, res) => {
     if (is_active !== undefined) admin.is_active = is_active;
 
     // Handle password update
-    if (password) {
-      const hashedPassword = await bcrypt.hash(password, 10);
+    if (password && String(password).trim() !== "") {
+      const hashedPassword = await bcrypt.hash(String(password).trim(), 10);
       admin.password_field = hashedPassword;
     }
 
@@ -146,7 +146,7 @@ exports.loginAdmin = async (req, res) => {
     }
 
     // Verify Password
-    const isMatch = await bcrypt.compare(password, admin.password_field);
+    const isMatch = await bcrypt.compare(String(password).trim(), admin.password_field);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
