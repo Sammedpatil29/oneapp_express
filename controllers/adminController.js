@@ -57,13 +57,13 @@ exports.createAdmin = async (req, res) => {
  */
 exports.loginAdmin = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { phone, password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    if (!phone || !password) {
+      return res.status(400).json({ success: false, message: 'phone and password are required' });
     }
 
-    const admin = await AdminUser.findOne({ where: { email } });
+    const admin = await AdminUser.findOne({ where: { phone } });
     if (!admin) {
       return res.status(404).json({ success: false, message: 'Admin not found' });
     }
