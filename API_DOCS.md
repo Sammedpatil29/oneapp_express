@@ -118,6 +118,14 @@ Creates a new admin user.
     }
     ```
 
+### Get Admin Profile
+Fetches the currently logged-in admin's profile.
+
+*   **URL:** `/api/admin/profile`
+*   **Method:** `GET`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+
 ### Get All Admins
 Fetches a list of all admin users.
 
@@ -146,6 +154,39 @@ Deletes an admin user.
 
 *   **URL:** `/api/admin/:id`
 *   **Method:** `DELETE`
+
+## Admin Order Management
+
+### Get All Orders
+Fetches orders based on service type.
+
+*   **URL:** `/api/admin/orders`
+*   **Method:** `GET`
+*   **Query Params:**
+    *   `service`: `grocery` | `dineout` | `event` | `ride` (Required)
+    *   `status`: Filter by status (Optional)
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "count": 5,
+      "data": [ ... ]
+    }
+    ```
+
+### Update Order Status
+Updates the status of a specific order.
+
+*   **URL:** `/api/admin/orders`
+*   **Method:** `PATCH`
+*   **Body:**
+    ```json
+    {
+      "service": "grocery",
+      "orderId": 1,
+      "status": "CONFIRMED"
+    }
+    ```
 
 ---
 
