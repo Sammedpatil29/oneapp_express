@@ -26,7 +26,6 @@ async function createService(req, res) {
 async function getAllServices(req, res) {
   try {
     const services = await Service.findAll({
-      order: [['createdAt', 'DESC']] // Newest first
     });
     return res.json({ 
       success: true, 
