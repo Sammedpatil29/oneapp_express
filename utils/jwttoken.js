@@ -36,7 +36,7 @@ async function verifyUserJwtToken(token) {
         break;
 
       case "rider":
-        user = await Rider.findByPk(id);
+        user = await Rider.findByPk(user_id);
         break;
 
       case "admin":
@@ -53,7 +53,7 @@ async function verifyUserJwtToken(token) {
     }
 
     if (!user) {
-      throw new Error(`${role} with ID ${id} not found`);
+      throw new Error(`${role} with ID ${user_id} not found`);
     }
 
     // ✅ Return both user data and role

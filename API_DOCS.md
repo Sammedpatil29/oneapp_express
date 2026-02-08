@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:3000` (Default)
 
-## Authentication
+## Authentication (User)
 
 ### Verify Token
 Checks if the JWT token is valid and if the user exists.
@@ -88,6 +88,36 @@ Updates user profile details.
     }
     ```
 
+## Admin Authentication
+
+### Create Admin
+Creates a new admin user.
+
+*   **URL:** `/api/admin/create`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "email": "admin@example.com",
+      "password": "securepassword",
+      "first_name": "Admin",
+      "last_name": "User",
+      "phone": "9876543210",
+      "role": "admin"
+    }
+    ```
+
+### Login Admin
+*   **URL:** `/api/admin/login`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "email": "admin@example.com",
+      "password": "securepassword"
+    }
+    ```
+
 ---
 
 ## Home
@@ -111,6 +141,32 @@ Fetches aggregated data for the home screen: active banners, user addresses, and
           }
         }
         ```
+
+---
+
+## Metadata (Configuration)
+
+### Get Polygon
+Fetches the service area polygon.
+
+*   **URL:** `/api/metadata`
+*   **Method:** `GET`
+
+### Update Polygon
+Updates the service area polygon.
+
+*   **URL:** `/api/metadata`
+*   **Method:** `PATCH`
+*   **Body:**
+    ```json
+    {
+      "polygon": [
+        { "lat": 12.9716, "lng": 77.5946 },
+        { "lat": 12.9717, "lng": 77.5947 },
+        { "lat": 12.9718, "lng": 77.5948 }
+      ]
+    }
+    ```
 
 ---
 
@@ -696,7 +752,7 @@ Allows a rider to cancel/unassign themselves from a ride.
 | `PUT` | `/:id` | Update item | Yes* | Fields to update |
 | `DELETE` | `/:id` | Delete item | Yes* | Param: `id` |
 
-*\*Auth middleware is currently commented out in routes.*
+*\*Auth middleware is optional/commented out in routes.*
 
 ### 2. Grocery Categories
 **Base URL:** `/api/grocery-categories`
@@ -728,7 +784,42 @@ Allows a rider to cancel/unassign themselves from a ride.
 | `POST` | `/category` | Get category page data | Optional | `{ "selectedRoute": "string" }` |
 | `POST` | `/productbycategory` | Get products by category | Optional | `{ "selectedCategory": "string" }` |
 | `POST` | `/section` | Get dynamic section data | No | `{ "term": "under_100" \| "trending" \| "new_arrivals" }` |
-| `POST` | `/search` | Search items | Optional | `{ "searchTerm": "apple" }` |
+| `POST` | `/search` | Search items | Optional | `{ "searchTerm": "apple" }` (Header: Auth optional for cart sync) |
+
+### 5. Grocery Orders
+**Base URL:** `/api/grocery-order`
+
+#### Create Order
+*   **URL:** `/create`
+*   **Method:** `POST`
+*   **Headers:** `Authorization: Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "cartItems": [ ... ],
+      "billDetails": { "toPay": 150, ... },
+      "address": { ... },
+      "paymentDetails": { "mode": "online" },
+      "riderDetails": { ... },
+      "status": "PENDING" // Optional
+    }
+    ```
+
+#### Verify Payment
+*   **URL:** `/verify-payment`
+*   **Method:** `POST`
+*   **Body:** `{ "orderId": 123 }`
+
+#### Get Orders List
+*   **URL:** `/list`
+*   **Method:** `GET`
+*   **Headers:** `Authorization: Bearer <token>`
+
+#### Cancel Order
+*   **URL:** `/cancel`
+*   **Method:** `POST`
+*   **Headers:** `Authorization: Bearer <token>`
+*   **Body:** `{ "orderId": 123 }`
 
 ---
 
@@ -836,3 +927,18 @@ Calculates the best offer and savings for a given bill amount.
 *   **Method:** `POST`
 *   **Headers:** `Authorization: Bearer <token>`
 *   **Body:** `{ "restaurantId": 1, "billAmount": 2000 }`
+
+#### Create Dineout Payment
+Creates a Razorpay order for a dineout bill.
+
+*   **URL:** `/payment/create`
+*   **Method:** `POST`
+*   **Headers:** `Authorization: Bearer <token>`
+*   **Body:** `{ "billAmount": 1500, "restaurantId": 1, "bookingId": 5, "discount": 100 }`
+
+#### Verify Dineout Payment
+Verifies payment status with Razorpay and updates the order.
+
+*   **URL:** `/payment/verify`
+*   **Method:** `POST`
+*   **Body:** `{ "orderId": 5 }`
