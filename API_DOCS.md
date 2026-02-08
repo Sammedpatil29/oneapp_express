@@ -113,10 +113,39 @@ Creates a new admin user.
 *   **Body:**
     ```json
     {
-      "email": "admin@example.com",
+      "phone": "9876543210",
       "password": "securepassword"
     }
     ```
+
+### Get All Admins
+Fetches a list of all admin users.
+
+*   **URL:** `/api/admin/list`
+*   **Method:** `GET`
+
+### Update Admin
+Updates an existing admin user.
+
+*   **URL:** `/api/admin/:id`
+*   **Method:** `PUT`
+*   **Body:**
+    ```json
+    {
+      "email": "newemail@example.com",
+      "first_name": "Updated",
+      "last_name": "Name",
+      "phone": "9876543210",
+      "role": "manager",
+      "is_active": true
+    }
+    ```
+
+### Delete Admin
+Deletes an admin user.
+
+*   **URL:** `/api/admin/:id`
+*   **Method:** `DELETE`
 
 ---
 

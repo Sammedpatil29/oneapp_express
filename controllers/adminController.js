@@ -52,6 +52,83 @@ exports.createAdmin = async (req, res) => {
 };
 
 /**
+ * Get All Admin Users
+ * GET /api/admin/list
+ */
+exports.getAllAdmins = async (req, res) => {
+  try {
+    const admins = await AdminUser.findAll({
+    });
+    res.status(200).json({ success: true, data: admins });
+  } catch (error) {
+    console.error('Get All Admins Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Update Admin User
+ * PUT /api/admin/:id
+ */
+exports.updateAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email, password, first_name, last_name, phone, role, profile_image, is_active } = req.body;
+
+    const admin = await AdminUser.findByPk(id);
+    if (!admin) {
+      return res.status(404).json({ success: false, message: 'Admin not found' });
+    }
+
+    // Update fields if provided
+    if (email) admin.email = email;
+    if (first_name) admin.first_name = first_name;
+    if (last_name) admin.last_name = last_name;
+    if (phone) admin.phone = phone;
+    if (role) admin.role = role;
+    if (profile_image) admin.profile_image = profile_image;
+    if (is_active !== undefined) admin.is_active = is_active;
+
+    // Handle password update
+    if (password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      admin.password_field = hashedPassword;
+    }
+
+    await admin.save();
+
+    // Return updated data without password
+    const adminData = admin.toJSON();
+    delete adminData.password_field;
+
+    res.status(200).json({ success: true, message: 'Admin updated successfully', data: adminData });
+  } catch (error) {
+    console.error('Update Admin Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Delete Admin User
+ * DELETE /api/admin/:id
+ */
+exports.deleteAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await AdminUser.destroy({ where: { id } });
+
+    if (deleted) {
+      return res.status(200).json({ success: true, message: 'Admin deleted successfully' });
+    }
+
+    return res.status(404).json({ success: false, message: 'Admin not found' });
+  } catch (error) {
+    console.error('Delete Admin Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * Login Admin
  * POST /api/admin/login
  */
