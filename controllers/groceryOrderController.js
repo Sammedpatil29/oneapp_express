@@ -55,7 +55,7 @@ exports.createOrder = async (req, res) => {
       address: address,
       payment_details: paymentDetails,
       rider_details: riderDetails,
-      status: status || 'PENDING'
+      status: { status: status || 'PENDING', time: new Date() }
     });
 
     // 4. Handle Online Payment (Create Razorpay Order)
@@ -123,7 +123,7 @@ exports.verifyPayment = async (req, res) => {
     }
 
     // If already paid, return success immediately
-    if (order.status === 'PAID' || order.status === 'CONFIRMED') {
+    if (order.status?.status === 'PAID' || order.status?.status === 'CONFIRMED') {
       return res.status(200).json({ success: true, status: 'paid', order });
     }
 
@@ -134,7 +134,7 @@ exports.verifyPayment = async (req, res) => {
 
       if (paidPayment) {
         // 1. Update Order
-        order.status = 'PAID';
+        order.status = { ...order.status, status: 'PAID', time: new Date() };
         order.razorpay_payment_id = paidPayment.id;
         await order.save();
 
@@ -230,13 +230,13 @@ exports.cancelOrder = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Unauthorized access to this order' });
     }
 
-    if (order.status === 'CANCELLED') {
+    if (order.status?.status === 'CANCELLED') {
       return res.status(200).json({ success: true, data: order });
     }
 
     // Restore Stock Logic: If COD or PAID, stock was previously reduced, so we add it back.
     const isCod = order.payment_details && order.payment_details.mode === 'cod';
-    const isPaid = order.status === 'PAID';
+    const isPaid = order.status?.status === 'PAID';
 
     if (isCod || isPaid) {
       const cartItems = order.cart_items;
@@ -252,7 +252,7 @@ exports.cancelOrder = async (req, res) => {
       }
     }
 
-    order.status = 'CANCELLED';
+    order.status = { ...order.status, status: 'CANCELLED', time: new Date() };
     order.rider_details = null;
     await order.save();
 
