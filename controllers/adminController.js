@@ -160,3 +160,32 @@ exports.loginAdmin = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+/**
+ * Get Current Admin Profile
+ * GET /api/admin/profile
+ */
+exports.getAdminProfile = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    const admin = await AdminUser.findByPk(decoded.user_id, {
+      attributes: { exclude: ['password_field'] }
+    });
+
+    if (!admin) {
+      return res.status(404).json({ success: false, message: 'Admin not found' });
+    }
+
+    res.status(200).json({ success: true, data: admin });
+  } catch (error) {
+    console.error('Get Admin Profile Error:', error);
+    res.status(401).json({ success: false, message: 'Invalid or expired token' });
+  }
+};
