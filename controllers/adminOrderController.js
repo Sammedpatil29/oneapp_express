@@ -75,6 +75,58 @@ exports.getAllOrders = async (req, res) => {
 };
 
 /**
+ * Get Order Details by ID
+ * GET /api/admin/orders/:id?service=grocery
+ */
+exports.getOrderById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { service } = req.query;
+
+    if (!service) {
+      return res.status(400).json({ success: false, message: 'Service query parameter is required' });
+    }
+
+    let order;
+
+    switch (service.toLowerCase()) {
+      case 'grocery':
+        order = await GroceryOrder.findByPk(id, {
+          include: [{ model: User, attributes: ['id', 'first_name', 'last_name', 'phone', 'email'] }]
+        });
+        break;
+
+      case 'dineout':
+        order = await DineoutOrder.findByPk(id);
+        break;
+
+      case 'event':
+        order = await Booking.findByPk(id);
+        break;
+
+      case 'ride':
+        order = await Ride.findByPk(id, {
+          include: [{ model: User, attributes: ['id', 'first_name', 'last_name', 'phone', 'email'] }]
+        });
+        break;
+
+      default:
+        return res.status(400).json({ success: false, message: 'Invalid service type' });
+    }
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    res.status(200).json({ success: true, data: order });
+
+  } catch (error) {
+    console.error('Admin Get Order Details Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * Update Order Status
  * PATCH /api/admin/orders
  * Body: { service: 'grocery', orderId: 1, status: 'CONFIRMED' }
