@@ -7,5 +7,6 @@ router.get('/list', groceryOrderController.getOrders);
 router.get('/:id', groceryOrderController.getOrderById);
 router.post('/verify-status', groceryOrderController.verifyPayment);
 router.post('/cancel', groceryOrderController.cancelOrder);
+router.post('/update-status', groceryOrderController.updateOrderStatus);
 
 module.exports = router;

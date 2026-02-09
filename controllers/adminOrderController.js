@@ -19,16 +19,14 @@ exports.getAllOrders = async (req, res) => {
 
     switch (service.toLowerCase()) {
       case 'grocery':
-        // GroceryOrder has a JSONB status field: { status: 'PENDING', time: ... }
+        const groceryWhere = {};
+        if (status) groceryWhere.status = status;
+
         orders = await GroceryOrder.findAll({
+          where: groceryWhere,
           include: [{ model: User, attributes: ['id', 'first_name', 'last_name', 'phone'] }],
           order: [['createdAt', 'DESC']]
         });
-
-        // Filter in memory for JSONB status if a status filter is provided
-        if (status) {
-          orders = orders.filter(o => o.status && o.status.status === status);
-        }
         break;
 
       case 'dineout':
@@ -146,8 +144,8 @@ exports.updateOrderStatus = async (req, res) => {
       case 'grocery':
         order = await GroceryOrder.findByPk(orderId);
         if (order) {
-          // Preserve existing status object structure for Grocery
-          order.status = { ...order.status, status: status, time: new Date() };
+          order.status = status;
+          order.timeline = [...(order.timeline || []), { status: status, time: new Date() }];
           await order.save();
           updated = true;
         }

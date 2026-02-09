@@ -3,6 +3,7 @@ const GroceryItem = require('../models/groceryItem');
 const GroceryCartItem = require('../models/groceryCartItem');
 const jwt = require('jsonwebtoken');
 const Razorpay = require('razorpay');
+const { verifyUserJwtToken } = require('../utils/jwttoken');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_S5RLYqr6y2I6xs',
@@ -55,7 +56,8 @@ exports.createOrder = async (req, res) => {
       address: address,
       payment_details: paymentDetails,
       rider_details: riderDetails,
-      status: { status: status || 'PENDING', time: new Date() }
+      status: status || 'PENDING',
+      timeline: [{ status: status || 'PENDING', time: new Date() }]
     });
 
     // 4. Handle Online Payment (Create Razorpay Order)
@@ -109,6 +111,49 @@ exports.createOrder = async (req, res) => {
 };
 
 /**
+ * Update Order Status
+ * POST /api/grocery-order/update-status
+ * Body: { orderId: <id>, status: <string> }
+ */
+exports.updateOrderStatus = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const authData = await verifyUserJwtToken(token);
+
+    if (!authData) {
+      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    const { orderId, status } = req.body;
+
+    if (!orderId || !status) {
+      return res.status(400).json({ success: false, message: 'Order ID and status are required' });
+    }
+
+    const order = await GroceryOrder.findByPk(orderId);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Update status preserving structure
+    order.status = status;
+    order.timeline = [...(order.timeline || []), { status: status, time: new Date() }];
+    await order.save();
+
+    res.status(200).json({ success: true, message: 'Order status updated successfully', data: order });
+  } catch (error) {
+    console.error('Error updating grocery order status:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * Verify Payment Status for Grocery Order
  * POST /api/grocery-order/verify-payment
  * Body: { orderId: <internal_order_id> }
@@ -123,7 +168,7 @@ exports.verifyPayment = async (req, res) => {
     }
 
     // If already paid, return success immediately
-    if (order.status?.status === 'PAID' || order.status?.status === 'CONFIRMED') {
+    if (order.status === 'PAID' || order.status === 'CONFIRMED') {
       return res.status(200).json({ success: true, status: 'paid', order });
     }
 
@@ -134,7 +179,8 @@ exports.verifyPayment = async (req, res) => {
 
       if (paidPayment) {
         // 1. Update Order
-        order.status = { ...order.status, status: 'PAID', time: new Date() };
+        order.status = 'PAID';
+        order.timeline = [...(order.timeline || []), { status: 'PAID', time: new Date() }];
         order.razorpay_payment_id = paidPayment.id;
         await order.save();
 
@@ -230,13 +276,13 @@ exports.cancelOrder = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Unauthorized access to this order' });
     }
 
-    if (order.status?.status === 'CANCELLED') {
+    if (order.status === 'CANCELLED') {
       return res.status(200).json({ success: true, data: order });
     }
 
     // Restore Stock Logic: If COD or PAID, stock was previously reduced, so we add it back.
     const isCod = order.payment_details && order.payment_details.mode === 'cod';
-    const isPaid = order.status?.status === 'PAID';
+    const isPaid = order.status === 'PAID';
 
     if (isCod || isPaid) {
       const cartItems = order.cart_items;
@@ -252,7 +298,8 @@ exports.cancelOrder = async (req, res) => {
       }
     }
 
-    order.status = { ...order.status, status: 'CANCELLED', time: new Date() };
+    order.status = 'CANCELLED';
+    order.timeline = [...(order.timeline || []), { status: 'CANCELLED', time: new Date() }];
     order.rider_details = null;
     await order.save();
 

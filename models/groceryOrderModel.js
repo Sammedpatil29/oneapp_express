@@ -45,8 +45,12 @@ const GroceryOrder = sequelize.define('GroceryOrder', {
     allowNull: true,
   },
   status: {
-    type: DataTypes.JSONB,
-    defaultValue: { status: 'PENDING', time: null }
+    type: DataTypes.STRING,
+    defaultValue: 'PENDING'
+  },
+  timeline: {
+    type: DataTypes.JSONB, // Array of objects: [{ status: 'PENDING', time: '...' }]
+    defaultValue: []
   }
 }, {
   tableName: 'grocery_orders',
