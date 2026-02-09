@@ -123,7 +123,7 @@ exports.verifyPayment = async (req, res) => {
     }
 
     // If already paid, return success immediately
-    if (order.status?.status === 'PLACED' || order.status?.status === 'PLACED') {
+    if (order.status?.status === 'PAID' || order.status?.status === 'CONFIRMED') {
       return res.status(200).json({ success: true, status: 'paid', order });
     }
 
@@ -134,7 +134,7 @@ exports.verifyPayment = async (req, res) => {
 
       if (paidPayment) {
         // 1. Update Order
-        order.status = { ...order.status, status: 'PLACED', time: new Date() };
+        order.status = { ...order.status, status: 'PAID', time: new Date() };
         order.razorpay_payment_id = paidPayment.id;
         await order.save();
 
