@@ -119,6 +119,6 @@ app.get('/', (req, res) => {
 require('./socketHandler')(io);
 
 // ===== Start the server =====
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
