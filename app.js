@@ -13,7 +13,7 @@ const axios = require('axios');
 const pool = require('./db'); // Only if you actually use it
 
 
-const PORT = 3000;
+const PORT = process.env.PORT || 8080;
 const app = express();
 
 // ✅ Create HTTP server and attach Socket.IO properly
@@ -122,4 +122,4 @@ require('./socketHandler')(io);
 // app.listen(PORT, () => {
 //   console.log(`🚀 Server running at http://localhost:${PORT}`);
 // });
-app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
