@@ -811,56 +811,127 @@ Allows a rider to cancel/unassign themselves from a ride.
 ## Grocery Module
 
 ### 1. Grocery Items
-**Base URL:** `/api/grocery`
 
-| Method | Endpoint | Description | Auth | Body / Params |
-| :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/` | Get all items | No | Query: `category`, `active`, `brand`, `featured` |
-| `GET` | `/:id` | Get item details | No | Param: `id` |
-| `POST` | `/` | Create item | Yes* | `{ name, price, stock, unit, unit_value, category, tags, sku, brand, ... }` |
-| `POST` | `/bulk` | Bulk create items | Yes* | `[ { name, ... }, ... ]` |
-| `PUT` | `/:id` | Update item | Yes* | Fields to update |
-| `DELETE` | `/:id` | Delete item | Yes* | Param: `id` |
+#### Get All Items
+*   **URL:** `/api/grocery`
+*   **Method:** `GET`
+*   **Query Params:** `category`, `active`, `brand`, `featured`
 
-*\*Auth middleware is optional/commented out in routes.*
+#### Get Item Details
+*   **URL:** `/api/grocery/:id`
+*   **Method:** `GET`
+
+#### Create Item
+*   **URL:** `/api/grocery`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    { "name": "Apple", "price": 100, "stock": 50, "unit": "kg", "unit_value": 1, "category": "fruits" }
+    ```
+
+#### Update Item
+*   **URL:** `/api/grocery/:id`
+*   **Method:** `PUT`
+*   **Body:** Fields to update.
+
+#### Delete Item
+*   **URL:** `/api/grocery/:id`
+*   **Method:** `DELETE`
 
 ### 2. Grocery Categories
-**Base URL:** `/api/grocery-categories`
 
-| Method | Endpoint | Description | Auth | Body / Params |
-| :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/` | Get all categories | No | - |
-| `POST` | `/` | Create category | No | `{ name, img, bg }` |
-| `POST` | `/seed` | Bulk create | No | `[ { name, img, bg }, ... ]` |
-| `POST` | `/seed` | Bulk create | No | `[ { name, img, bg }, ... ]` (Optional: uses default list if empty) |
-| `PUT` | `/:id` | Update category | No | Fields to update |
-| `DELETE` | `/:id` | Delete category | No | Param: `id` |
+#### Get All Categories
+*   **URL:** `/api/grocery-categories`
+*   **Method:** `GET`
+
+#### Create Category
+*   **URL:** `/api/grocery-categories`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    { "name": "Fruits", "img": "url", "bg": "#ffffff" }
+    ```
 
 ### 3. Grocery Cart
-**Base URL:** `/api/grocery/cart`
 
-| Method | Endpoint | Description | Auth | Body / Params |
-| :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/` | Get user cart | **Yes** | - |
-| `POST` | `/update` | Add/Update item | **Yes** | `{ productId, quantity }` <br> Sets quantity directly. If 0, removes item. |
-| `DELETE` | `/:productId` | Remove item | **Yes** | Param: `productId` |
+#### Get User Cart
+Fetches cart items, bill details, and suggestions.
+
+*   **URL:** `/api/grocery/cart`
+*   **Method:** `GET`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+*   **Query Params:** `coupon` (Optional)
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "items": [ ... ],
+        "billDetails": {
+          "mrpTotal": "200.00",
+          "itemTotal": "180.00",
+          "deliveryFee": "30.00",
+          "toPay": "210.00",
+          "totalSavings": "20.00"
+        },
+        "suggestions": [ ... ]
+      }
+    }
+    ```
+
+#### Update Cart Item
+Adds or updates an item in the cart. Setting quantity to 0 removes it.
+
+*   **URL:** `/api/grocery/cart`
+*   **Method:** `POST`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
+*   **Body:**
+    ```json
+    {
+      "productId": 1,
+      "quantity": 2
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "message": "Cart updated",
+      "data": [{ "1": 2 }],
+      "itemCount": 2,
+      "totalPrice": "180.00"
+    }
+    ```
+
+#### Remove Item from Cart
+*   **URL:** `/api/grocery/cart/:productId`
+*   **Method:** `DELETE`
+*   **Headers:**
+    *   `Authorization`: `Bearer <token>`
 
 ### 4. Grocery Home
-**Base URL:** `/api/grocery-home`
 
-| Method | Endpoint | Description | Auth | Body / Params |
-| :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/` | Get home data (categories, banners, cart) | Optional | Header: `Authorization: Bearer <token>` to get cart items. |
-| `POST` | `/category` | Get category page data | Optional | `{ "selectedRoute": "string" }` |
-| `POST` | `/productbycategory` | Get products by category | Optional | `{ "selectedCategory": "string" }` |
-| `POST` | `/section` | Get dynamic section data | No | `{ "term": "under_100" \| "trending" \| "new_arrivals" }` |
-| `POST` | `/search` | Search items | Optional | `{ "searchTerm": "apple" }` (Header: Auth optional for cart sync) |
+#### Get Home Data
+*   **URL:** `/api/grocery-home`
+*   **Method:** `GET`
+*   **Headers:** `Authorization: Bearer <token>` (Optional)
+
+#### Get Products by Category
+*   **URL:** `/api/grocery-home/productbycategory`
+*   **Method:** `POST`
+*   **Body:** `{ "selectedCategory": "fruits" }`
+
+#### Search Items
+*   **URL:** `/api/grocery-home/search`
+*   **Method:** `POST`
+*   **Body:** `{ "searchTerm": "apple" }`
 
 ### 5. Grocery Orders
-**Base URL:** `/api/grocery-order`
 
 #### Create Order
-*   **URL:** `/create`
+*   **URL:** `/api/grocery-order/create`
 *   **Method:** `POST`
 *   **Headers:** `Authorization: Bearer <token>`
 *   **Body:**
@@ -870,23 +941,22 @@ Allows a rider to cancel/unassign themselves from a ride.
       "billDetails": { "toPay": 150, ... },
       "address": { ... },
       "paymentDetails": { "mode": "online" },
-      "riderDetails": { ... },
-      "status": "PENDING" // Optional
+      "riderDetails": { ... }
     }
     ```
 
 #### Verify Payment
-*   **URL:** `/verify-payment`
+*   **URL:** `/api/grocery-order/verify-payment`
 *   **Method:** `POST`
 *   **Body:** `{ "orderId": 123 }`
 
 #### Get Orders List
-*   **URL:** `/list`
+*   **URL:** `/api/grocery-order/list`
 *   **Method:** `GET`
 *   **Headers:** `Authorization: Bearer <token>`
 
 #### Cancel Order
-*   **URL:** `/cancel`
+*   **URL:** `/api/grocery-order/cancel`
 *   **Method:** `POST`
 *   **Headers:** `Authorization: Bearer <token>`
 *   **Body:** `{ "orderId": 123 }`
@@ -941,11 +1011,10 @@ Allows a rider to cancel/unassign themselves from a ride.
 *   **Method:** `POST`
 *   **Body:** Array of restaurant objects.
 
-### Dineout Orders
-**Base URL:** `/api/dineout/orders`
+### Dineout Orders & Payments
 
 #### Create Order
-*   **URL:** `/create`
+*   **URL:** `/api/dineout/orders/create`
 *   **Method:** `POST`
 *   **Headers:** `Authorization: Bearer <token>`
 *   **Body:**
@@ -960,20 +1029,40 @@ Allows a rider to cancel/unassign themselves from a ride.
       "billDetails": { ... }
     }
     ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "message": "Order placed successfully",
+      "data": { ... }
+    }
+    ```
 
 #### Get Order Details
-*   **URL:** `/details`
+*   **URL:** `/api/dineout/orders/details`
 *   **Method:** `POST`
 *   **Body:** `{ "orderId": 1 }`
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "id": 1,
+        "status": "CONFIRMED",
+        "bill_details": { ... },
+        "info": { "message": "Booking Confirmed!", ... }
+      }
+    }
+    ```
 
 #### Cancel Order
-*   **URL:** `/cancel`
+*   **URL:** `/api/dineout/orders/cancel`
 *   **Method:** `POST`
 *   **Headers:** `Authorization: Bearer <token>`
 *   **Body:** `{ "orderId": 1 }`
 
 #### Upload Bill
-*   **URL:** `/upload-bill`
+*   **URL:** `/api/dineout/orders/upload-bill`
 *   **Method:** `POST`
 *   **Headers:** `Authorization: Bearer <token>`
 *   **Body:**
@@ -985,30 +1074,73 @@ Allows a rider to cancel/unassign themselves from a ride.
     ```
 
 #### Verify Bill (Admin/Manager)
-*   **URL:** `/verify-bill`
+*   **URL:** `/api/dineout/orders/verify-bill`
 *   **Method:** `POST`
 *   **Headers:** `Authorization: Bearer <token>`
-*   **Body:** `{ "bookingId": 1, "status": "verified", "billAmount": 1500 }`
+*   **Body:**
+    ```json
+    {
+      "bookingId": 1,
+      "status": "verified", // or "rejected"
+      "billAmount": 1500
+    }
+    ```
 
 #### Calculate Bill Offers
 Calculates the best offer and savings for a given bill amount.
 
-*   **URL:** `/calculate-bill`
+*   **URL:** `/api/dineout/orders/calculate-bill`
 *   **Method:** `POST`
 *   **Headers:** `Authorization: Bearer <token>`
-*   **Body:** `{ "restaurantId": 1, "billAmount": 2000 }`
+*   **Body:**
+    ```json
+    {
+      "restaurantId": 1,
+      "billAmount": 2000,
+      "bookingId": 5 // Optional
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "originalAmount": 2000,
+        "maxSavings": 200,
+        "finalAmount": 1800,
+        "bestOffer": { ... },
+        "eligibleOffers": [ ... ]
+      }
+    }
+    ```
 
 #### Create Dineout Payment
 Creates a Razorpay order for a dineout bill.
 
-*   **URL:** `/payment/create`
+*   **URL:** `/api/dineout/orders/payment/create`
 *   **Method:** `POST`
 *   **Headers:** `Authorization: Bearer <token>`
-*   **Body:** `{ "billAmount": 1500, "restaurantId": 1, "bookingId": 5, "discount": 100 }`
+*   **Body:**
+    ```json
+    {
+      "billAmount": 1500,
+      "restaurantId": 1,
+      "bookingId": 5,
+      "discount": 100
+    }
+    ```
 
 #### Verify Dineout Payment
 Verifies payment status with Razorpay and updates the order.
 
-*   **URL:** `/payment/verify`
+*   **URL:** `/api/dineout/orders/payment/verify`
 *   **Method:** `POST`
 *   **Body:** `{ "orderId": 5 }`
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "status": "paid",
+      "order": { ... }
+    }
+    ```
