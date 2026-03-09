@@ -64,6 +64,7 @@ const adminOrderRoutes = require('./Routes/adminOrderRoutes');
 const sequelize = require('./db');
 const updatePastBookings = require('./cron/bookingStatusUpdater');
 const updateStaleDineoutOrders = require('./cron/dineoutOrderStatusUpdater');
+const startMorningNotificationJob = require('./cron/dailyMorningNotification');
 
 
 // ===== Middleware =====
@@ -84,6 +85,9 @@ sequelize
     setInterval(updatePastBookings, 24 * 60 * 60 * 1000);
     // Schedule to run every 30 minutes (1800000 ms)
     setInterval(updateStaleDineoutOrders, 30 *60 * 1000);
+
+    // Initialize Daily Cron Jobs
+    startMorningNotificationJob();
   })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
