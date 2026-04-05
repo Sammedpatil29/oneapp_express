@@ -20,20 +20,9 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: [
-      "https://localhost",              // your local Ionic/React/Vue app
-      "https://hv0ft3xh-8100.inc1.devtunnels.ms",              // your local Ionic/React/Vue app
-      "http://localhost",              // your local Ionic/React/Vue app
-      "https://your-production-site.com",
-      "http://localhost:8100",
-      "http://localhost:8200",
-      "https://localhost:8100",
-      "https://localhost:8101",
-      'https://pintu-minutes.app/' // optional - your deployed frontend
-    ],
+    origin: "*", // Allow all origins for broader access. Re-add strict array without trailing slashes for production if needed.
     methods: ['GET','POST','PUT','DELETE','OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true, // if you use cookies/auth
   },
 });
 
