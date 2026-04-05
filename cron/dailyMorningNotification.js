@@ -18,7 +18,7 @@ const startMorningNotificationJob = () => {
           }
         },
         attributes: ['fcm_token']
-      });
+      }); 
 
       // 2. Extract and deduplicate tokens
       const tokens = users
