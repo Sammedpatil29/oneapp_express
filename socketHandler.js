@@ -16,6 +16,21 @@ module.exports = (io) => {
       } catch (e) { console.error('Sync error:', e); }
     });
 
+    // --- Change Rider Status ---
+    socket.on('changeRiderStatus', async (data) => {
+      try {
+        if (data.riderId && data.status !== undefined) {
+          // Safely map boolean true/false to 'online'/'offline', or use the string directly
+          const newStatus = data.status === true ? 'online' : (data.status === false ? 'offline' : data.status);
+          
+          await Rider.update({ status: newStatus }, { where: { id: data.riderId } });
+          console.log(`Rider ${data.riderId} status changed to ${newStatus}`);
+        }
+      } catch (error) {
+        console.error('Change rider status error:', error);
+      }
+    });
+
     // --- Rider Accepts Ride ---
     socket.on('ride:accept', async (data) => {
       // data: { rideId, riderId }
