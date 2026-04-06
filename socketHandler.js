@@ -39,9 +39,15 @@ module.exports = (io) => {
       try {
         const ride = await Ride.findByPk(data.rideId);
         if (ride && ride.status === 'searching') {
+          // Fetch rider details to store in the ride
+          const rider = await Rider.findByPk(data.riderId);
+
           // 1. Update Ride
           ride.status = 'accepted';
           ride.riderId = data.riderId;
+          if (rider) {
+            ride.raider_details = rider.toJSON(); // Save sanitized rider data to JSONB column
+          }
           await ride.save();
 
           // 2. Stop the search loop
