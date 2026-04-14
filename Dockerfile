@@ -11,7 +11,7 @@ RUN npm install --production
 COPY . .
 
 # Match this to your Express port (usually 3000)
-EXPOSE 3000
+EXPOSE 3001
 
 # Start the app
 CMD ["node", "app.js"]
