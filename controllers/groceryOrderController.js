@@ -75,6 +75,11 @@ exports.createOrder = async (req, res) => {
       order.razorpay_order_id = rzpOrder.id;
       await order.save();
 
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('newOrder', order);
+      }
+
       return res.status(201).json({
         success: true,
         internal_order_id: order.id, // Direct ID, no prefix needed since logic is local
@@ -101,6 +106,11 @@ exports.createOrder = async (req, res) => {
 
       // Clear Cart
       await GroceryCartItem.destroy({ where: { user_id: userId } });
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('new order', order);
     }
 
     res.status(201).json({ success: true, message: 'Order placed successfully', data: order });

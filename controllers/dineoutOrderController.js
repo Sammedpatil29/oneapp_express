@@ -61,6 +61,11 @@ exports.createDineoutOrder = async (req, res) => {
       contact: restaurant ? restaurant.contact : null
     };
 
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('new order', order);
+    }
+
     res.status(201).json({ success: true, message: 'Order placed successfully', data: responseData });
   } catch (error) {
     console.error('Error creating dineout order:', error);
