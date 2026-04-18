@@ -4,6 +4,8 @@ const GroceryCartItem = require('../models/groceryCartItem');
 const jwt = require('jsonwebtoken');
 const Razorpay = require('razorpay');
 const { verifyUserJwtToken } = require('../utils/jwttoken');
+const User = require('../models/customUserModel');
+const AdminUser = require('../models/adminUser');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_S5RLYqr6y2I6xs',
@@ -272,9 +274,15 @@ exports.cancelOrder = async (req, res) => {
     let userId;
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
-      userId = decoded.id;
+      userId = decoded.id || decoded.user_id;
     } catch (err) {
-      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+      // Fallback for admin token if using the secondary secret
+      try {
+        const decodedAdmin = jwt.verify(token, process.env.JWT_SECRET || "django-insecure-0v(fl_v5t97hk)0mx&qq!b80ua)@-a@2e(5v4nac!$3l(m@9#(");
+        userId = decodedAdmin.user_id;
+      } catch (adminErr) {
+        return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+      }
     }
 
     const { orderId } = req.body;
@@ -288,7 +296,21 @@ exports.cancelOrder = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    if (order.user_id !== userId) {
+    let isAuthorized = false;
+
+    // First check for user table
+    const user = await User.findByPk(userId);
+    if (user && order.user_id === userId) {
+      isAuthorized = true;
+    } else {
+      // After check for admin
+      const admin = await AdminUser.findByPk(userId);
+      if (admin) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
       return res.status(403).json({ success: false, message: 'Unauthorized access to this order' });
     }
 
