@@ -113,6 +113,14 @@ async function loginRider(req, res) {
   }
 }
 
+async function getOnlineRiders(req, res) {
+  try {
+    const onlineRiders = await Rider.findAll({ where: { status: 'online' } });
+    res.status(200).json(onlineRiders);
+  } catch (error) {
+    console.error('Error fetching online riders:', error);
+    res.status(500).json({ error: 'Failed to fetch online riders' });
+  }
+}
 
-
-module.exports = { createRider, createRiderHandler, verifyRiderDocs, loginRider };
+module.exports = { createRider, createRiderHandler, verifyRiderDocs, loginRider, getOnlineRiders };
