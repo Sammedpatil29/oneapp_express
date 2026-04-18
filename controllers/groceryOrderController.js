@@ -178,11 +178,12 @@ exports.assignRiderToOrder = async (req, res) => {
     }
 
     // Update order with rider details
-    order.rider_details = rider.toJSON();
+    const riderData = rider.toJSON();
+    delete riderData.password;
+    order.rider_details = riderData;
     
-    // Optionally update the status (e.g., to indicate it's dispatched/assigned)
-    // order.status = 'ASSIGNED'; 
-    // order.timeline = [...(order.timeline || []), { status: 'ASSIGNED', time: new Date() }];
+    order.status = 'Rider Assigned'; 
+    order.timeline = [...(order.timeline || []), { status: 'Rider Assigned', time: new Date() }];
     
     await order.save();
 

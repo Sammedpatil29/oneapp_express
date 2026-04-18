@@ -46,7 +46,9 @@ module.exports = (io) => {
           ride.status = 'accepted';
           ride.riderId = data.riderId;
           if (rider) {
-            ride.raider_details = rider.toJSON(); // Save sanitized rider data to JSONB column
+            const riderData = rider.toJSON();
+            delete riderData.password;
+            ride.raider_details = riderData; // Save sanitized rider data to JSONB column
           }
           await ride.save();
 
