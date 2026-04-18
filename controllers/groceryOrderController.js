@@ -197,7 +197,7 @@ exports.verifyPayment = async (req, res) => {
 
       if (paidPayment) {
         // 1. Update Order
-        order.status = 'PAID';
+        order.status = 'CONFIRMED';
         order.timeline = [...(order.timeline || []), { status: 'PAID', time: new Date() }];
         order.razorpay_payment_id = paidPayment.id;
         await order.save();
