@@ -81,6 +81,11 @@ module.exports = (io) => {
       } catch (error) { console.error('Cancel error:', error); }
     });
 
+    // --- Debugging / Admin test ---
+    socket.on('admin:join', () => {
+      console.log(`🛡️ Admin dashboard connected: ${socket.id}`);
+    });
+
     socket.on('disconnect', () => {
       console.log('🔴 User disconnected:', socket.id);
     });
