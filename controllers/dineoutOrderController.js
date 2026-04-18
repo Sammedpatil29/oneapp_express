@@ -63,7 +63,10 @@ exports.createDineoutOrder = async (req, res) => {
 
     const io = req.app.get('io');
     if (io) {
+      console.log(`[Socket.IO] Emitting 'new order' for Dineout Order: ${order.id}`);
       io.emit('new order', order);
+    } else {
+      console.log('[Socket.IO] io instance not found on req.app');
     }
 
     res.status(201).json({ success: true, message: 'Order placed successfully', data: responseData });
