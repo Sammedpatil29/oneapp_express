@@ -24,6 +24,8 @@ const io = new Server(server, {
     methods: ['GET','POST','PUT','DELETE','OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   },
+  pingTimeout: 60000,   // Wait 60 seconds before disconnecting a client
+  pingInterval: 25000,  // Send a ping every 25 seconds
 });
 
 module.exports.io = io;
