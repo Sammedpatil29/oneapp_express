@@ -1,6 +1,7 @@
 const User = require('../models/customUserModel');
 const { sendFcmNotification } = require('../utils/fcmSender');
 const { Op } = require('sequelize');
+const Notification = require('../models/notificationModel');
 
 exports.sendToAllUsers = async (req, res) => {
   try {
@@ -64,5 +65,83 @@ exports.sendToAllUsers = async (req, res) => {
   } catch (error) {
     console.error('Broadcast Notification Error:', error);
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.createNotification = async (req, res) => {
+  try {
+    const notification = await Notification.create(req.body);
+    res.status(201).json({ success: true, data: notification });
+  } catch (error) {
+    console.error('Error creating notification:', error);
+    res.status(500).json({ success: false, message: 'Failed to create notification', error: error.message });
+  }
+};
+
+exports.seedNotifications = async (req, res) => {
+  try {
+    const notificationsData = req.body;
+    if (!Array.isArray(notificationsData)) {
+      return res.status(400).json({ success: false, message: 'Input must be an array' });
+    }
+    const notifications = await Notification.bulkCreate(notificationsData);
+    res.status(201).json({ success: true, count: notifications.length, data: notifications });
+  } catch (error) {
+    console.error('Error bulk creating notifications:', error);
+    res.status(500).json({ success: false, message: 'Failed to seed notifications', error: error.message });
+  }
+};
+
+exports.getAllNotifications = async (req, res) => {
+  try {
+    const whereClause = {};
+    if (req.query.active) {
+      whereClause.is_active = req.query.active === 'true';
+    }
+    const notifications = await Notification.findAll({ where: whereClause, order: [['createdAt', 'DESC']] });
+    res.status(200).json({ success: true, data: notifications });
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch notifications', error: error.message });
+  }
+};
+
+exports.getNotificationById = async (req, res) => {
+  try {
+    const notification = await Notification.findByPk(req.params.id);
+    if (!notification) {
+      return res.status(404).json({ success: false, message: 'Notification not found' });
+    }
+    res.status(200).json({ success: true, data: notification });
+  } catch (error) {
+    console.error('Error fetching notification by ID:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch notification', error: error.message });
+  }
+};
+
+exports.updateNotification = async (req, res) => {
+  try {
+    const [updated] = await Notification.update(req.body, { where: { id: req.params.id } });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Notification not found or no changes made' });
+    }
+    const updatedNotification = await Notification.findByPk(req.params.id);
+    res.status(200).json({ success: true, data: updatedNotification });
+  } catch (error) {
+    console.error('Error updating notification:', error);
+    res.status(500).json({ success: false, message: 'Failed to update notification', error: error.message });
+  }
+};
+
+exports.deleteNotification = async (req, res) => {
+  try {
+    const deleted = await Notification.destroy({ where: { id: req.params.id } });
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Notification not found' });
+    }
+    res.status(200).json({ success: true, message: 'Notification deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete notification', error: error.message });
   }
 };

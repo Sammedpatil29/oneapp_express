@@ -24,6 +24,8 @@ const io = new Server(server, {
     methods: ['GET','POST','PUT','DELETE','OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   },
+  pingTimeout: 60000,   // Wait 60 seconds before disconnecting a client
+  pingInterval: 25000,  // Send a ping every 25 seconds
 });
 
 module.exports.io = io;
@@ -42,6 +44,7 @@ const historyRoutes = require('./Routes/historyRoutes');
 const notificationRoutes = require('./Routes/notificationRoutes');
 const groceryRoutes = require('./Routes/groceryRoutes');
 const groceryCategoryRoutes = require('./Routes/groceryCategoryRoutes');
+const groceryBrandRoutes = require('./Routes/groceryBrandRoutes');
 const groceryCartRoutes = require('./Routes/groceryCartRoutes');
 const groceryHomeRoutes = require('./Routes/groceryHomeRoutes');
 const dineoutRoutes = require('./Routes/dineoutRoutes');
@@ -96,6 +99,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/grocery/cart', groceryCartRoutes);
 app.use('/api/grocery', groceryRoutes);
 app.use('/api/grocery-categories', groceryCategoryRoutes);
+app.use('/api/grocery-brands', groceryBrandRoutes);
 app.use('/api/grocery-home', groceryHomeRoutes);
 app.use('/api/grocery-order', groceryOrderRoutes);
 app.use('/api/dineout/orders', dineoutOrderRoutes);

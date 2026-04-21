@@ -23,7 +23,9 @@ async function createRider(data) {
       status: data.status || "offline",
     });
 
-    return rider;
+    const riderData = rider.toJSON();
+    delete riderData.password;
+    return riderData;
   } catch (error) {
     console.error("Error creating rider:", error);
     throw new Error("Failed to create rider");
@@ -79,7 +81,9 @@ async function verifyRiderDocs(req, res) {
 
     await rider.save();
 
-    return res.status(200).json({ message: 'Rider verification updated', rider });
+    const riderData = rider.toJSON();
+    delete riderData.password;
+    return res.status(200).json({ message: 'Rider verification updated', rider: riderData });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -113,6 +117,17 @@ async function loginRider(req, res) {
   }
 }
 
+async function getOnlineRiders(req, res) {
+  try {
+    const onlineRiders = await Rider.findAll({ 
+      where: { status: 'online' },
+      attributes: { exclude: ['password'] }
+    });
+    res.status(200).json(onlineRiders);
+  } catch (error) {
+    console.error('Error fetching online riders:', error);
+    res.status(500).json({ error: 'Failed to fetch online riders' });
+  }
+}
 
-
-module.exports = { createRider, createRiderHandler, verifyRiderDocs, loginRider };
+module.exports = { createRider, createRiderHandler, verifyRiderDocs, loginRider, getOnlineRiders };

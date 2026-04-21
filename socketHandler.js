@@ -46,7 +46,9 @@ module.exports = (io) => {
           ride.status = 'accepted';
           ride.riderId = data.riderId;
           if (rider) {
-            ride.raider_details = rider.toJSON(); // Save sanitized rider data to JSONB column
+            const riderData = rider.toJSON();
+            delete riderData.password;
+            ride.raider_details = riderData; // Save sanitized rider data to JSONB column
           }
           await ride.save();
 
@@ -79,6 +81,11 @@ module.exports = (io) => {
         
         io.emit('rideUpdate', { id: data.rideId, status: 'cancelled' });
       } catch (error) { console.error('Cancel error:', error); }
+    });
+
+    // --- Debugging / Admin test ---
+    socket.on('admin:join', () => {
+      console.log(`🛡️ Admin dashboard connected: ${socket.id}`);
     });
 
     socket.on('disconnect', () => {

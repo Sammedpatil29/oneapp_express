@@ -4,6 +4,9 @@ const GroceryCartItem = require('../models/groceryCartItem');
 const jwt = require('jsonwebtoken');
 const Razorpay = require('razorpay');
 const { verifyUserJwtToken } = require('../utils/jwttoken');
+const User = require('../models/customUserModel');
+const AdminUser = require('../models/adminUser');
+const Rider = require('../models/ridersModel');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_S5RLYqr6y2I6xs',
@@ -75,6 +78,14 @@ exports.createOrder = async (req, res) => {
       order.razorpay_order_id = rzpOrder.id;
       await order.save();
 
+      const io = req.app.get('io');
+      if (io) {
+        console.log(`[Socket.IO] Emitting 'new order' for Grocery Order: ${order.id} (Online)`);
+        io.emit('new order', order);
+      } else {
+        console.log('[Socket.IO] io instance not found on req.app');
+      }
+
       return res.status(201).json({
         success: true,
         internal_order_id: order.id, // Direct ID, no prefix needed since logic is local
@@ -103,9 +114,82 @@ exports.createOrder = async (req, res) => {
       await GroceryCartItem.destroy({ where: { user_id: userId } });
     }
 
+    const io = req.app.get('io');
+    if (io) {
+      console.log(`[Socket.IO] Emitting 'new order' for Grocery Order: ${order.id} (COD)`);
+      io.emit('new order', order);
+    } else {
+      console.log('[Socket.IO] io instance not found on req.app');
+    }
+
     res.status(201).json({ success: true, message: 'Order placed successfully', data: order });
   } catch (error) {
     console.error('Error creating grocery order:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Assign Rider to Order (Admin)
+ * POST /api/grocery-order/assign-rider
+ * Body: { orderId: <id>, riderId: <uuid> }
+ */
+exports.assignRiderToOrder = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    let userId;
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+      userId = decoded.id || decoded.user_id;
+    } catch (err) {
+      // Fallback for admin token if using the secondary secret
+      try {
+        const decodedAdmin = jwt.verify(token, process.env.JWT_SECRET || "django-insecure-0v(fl_v5t97hk)0mx&qq!b80ua)@-a@2e(5v4nac!$3l(m@9#(");
+        userId = decodedAdmin.user_id;
+      } catch (adminErr) {
+        return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+      }
+    }
+
+    // Check if the user is an admin
+    const admin = await AdminUser.findByPk(userId);
+    if (!admin) {
+      return res.status(403).json({ success: false, message: 'Unauthorized. Only admins can assign riders.' });
+    }
+
+    const { orderId, riderId } = req.body;
+    if (!orderId || !riderId) {
+      return res.status(400).json({ success: false, message: 'Order ID and Rider ID are required' });
+    }
+
+    const order = await GroceryOrder.findByPk(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const rider = await Rider.findByPk(riderId);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Rider not found' });
+    }
+
+    // Update order with rider details
+    const riderData = rider.toJSON();
+    delete riderData.password;
+    order.rider_details = riderData;
+    
+    order.status = 'Rider Assigned'; 
+    order.timeline = [...(order.timeline || []), { status: 'Rider Assigned', time: new Date() }];
+    
+    await order.save();
+
+    res.status(200).json({ success: true, message: 'Rider assigned to order successfully', data: order });
+  } catch (error) {
+    console.error('Error assigning rider:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -179,7 +263,7 @@ exports.verifyPayment = async (req, res) => {
 
       if (paidPayment) {
         // 1. Update Order
-        order.status = 'PAID';
+        order.status = 'CONFIRMED';
         order.timeline = [...(order.timeline || []), { status: 'PAID', time: new Date() }];
         order.razorpay_payment_id = paidPayment.id;
         await order.save();
@@ -256,9 +340,15 @@ exports.cancelOrder = async (req, res) => {
     let userId;
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
-      userId = decoded.id;
+      userId = decoded.id || decoded.user_id;
     } catch (err) {
-      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+      // Fallback for admin token if using the secondary secret
+      try {
+        const decodedAdmin = jwt.verify(token, process.env.JWT_SECRET || "django-insecure-0v(fl_v5t97hk)0mx&qq!b80ua)@-a@2e(5v4nac!$3l(m@9#(");
+        userId = decodedAdmin.user_id;
+      } catch (adminErr) {
+        return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+      }
     }
 
     const { orderId } = req.body;
@@ -272,7 +362,21 @@ exports.cancelOrder = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    if (order.user_id !== userId) {
+    let isAuthorized = false;
+
+    // First check for user table
+    const user = await User.findByPk(userId);
+    if (user && order.user_id === userId) {
+      isAuthorized = true;
+    } else {
+      // After check for admin
+      const admin = await AdminUser.findByPk(userId);
+      if (admin) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
       return res.status(403).json({ success: false, message: 'Unauthorized access to this order' });
     }
 

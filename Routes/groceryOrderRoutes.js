@@ -8,5 +8,6 @@ router.get('/:id', groceryOrderController.getOrderById);
 router.post('/verify-status', groceryOrderController.verifyPayment);
 router.post('/cancel', groceryOrderController.cancelOrder);
 router.post('/update-status', groceryOrderController.updateOrderStatus);
+router.post('/assign-rider', groceryOrderController.assignRiderToOrder);
 
 module.exports = router;
