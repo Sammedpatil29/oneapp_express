@@ -68,8 +68,20 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // ===== Sequelize sync =====
 sequelize
-  .sync({ alter: true })
-  .then(() => {
+  .sync() // Removed { alter: true } to stop it from crashing on the User table
+  .then(async () => {
+    // Safely add new columns to metadata without affecting existing data
+    try {
+      await sequelize.query(`
+        ALTER TABLE "metadata" 
+        ADD COLUMN IF NOT EXISTS "locations" JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "status" JSONB DEFAULT '["active"]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "categories" JSONB DEFAULT '[]'::jsonb;
+      `);
+    } catch (alterErr) {
+      console.log('⚠️ Metadata alter skipped (already updated or table missing)');
+    }
+
     console.log('✅ Models are synced with the database.');
     // Run status check immediately on startup
     updatePastBookings();

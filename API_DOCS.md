@@ -216,20 +216,35 @@ Fetches aggregated data for the home screen: active banners, user addresses, and
 
 ## Metadata (Configuration)
 
-### Get Polygon
-Fetches the service area polygon.
+### Query Specific Metadata Fields
+Fetches specific fields (like categories, status, polygon) from the metadata based on the body provided.
+
+*   **URL:** `/api/metadata/query`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "fields": ["categories", "status"]
+    }
+    ```
+
+### Get All Metadata
+Fetches all metadata including the service area polygon, service cities, statuses, and categories.
 
 *   **URL:** `/api/metadata`
 *   **Method:** `GET`
 
-### Update Polygon
-Updates the service area polygon.
+### Update Metadata
+Updates specific fields of the metadata.
 
 *   **URL:** `/api/metadata`
 *   **Method:** `PATCH`
 *   **Body:**
     ```json
     {
+      "categories": ["grocery", "dineout", "events"],
+      "status": ["active", "inactive"],
+      "locations": ["City A", "City B"],
       "polygon": [
         { "lat": 12.9716, "lng": 77.5946 },
         { "lat": 12.9717, "lng": 77.5947 },
