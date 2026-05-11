@@ -88,6 +88,25 @@ Updates user profile details.
     }
     ```
 
+### Get All Users
+Fetches a list of all registered users.
+
+*   **URL:** `/users`
+*   **Method:** `GET`
+*   **Response:**
+    *   `200 OK`:
+        ```json
+        {
+          "success": true,
+          "count": 1,
+          "data": [
+            {
+              ...
+            }
+          ]
+        }
+        ```
+
 ## Admin Authentication
 
 ### Create Admin
