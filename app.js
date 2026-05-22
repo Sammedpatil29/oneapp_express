@@ -53,6 +53,7 @@ const groceryOrderRoutes = require('./Routes/groceryOrderRoutes');
 const metadataRoutes = require('./Routes/metadataRoutes');
 const adminRoutes = require('./Routes/adminRoutes');
 const adminOrderRoutes = require('./Routes/adminOrderRoutes');
+const sidebarItemRoutes = require('./Routes/sidebarItemRoutes');
 
 const sequelize = require('./db');
 const updatePastBookings = require('./cron/bookingStatusUpdater');
@@ -119,6 +120,7 @@ app.use('/api/dineout', dineoutRoutes);
 app.use('/api/metadata', metadataRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/orders', adminOrderRoutes);
+app.use('/api/sidebar-items', sidebarItemRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {
