@@ -85,6 +85,15 @@ sequelize
       console.log('⚠️ Metadata alter skipped (already updated or table missing)');
     }
 
+    try {
+      await sequelize.query(`
+        ALTER TABLE "grocery coupons" 
+        ADD COLUMN IF NOT EXISTS "max_discount" VARCHAR(255);
+      `);
+    } catch (alterErr) {
+      console.log('⚠️ Grocery coupons alter skipped (already updated or table missing)');
+    }
+
     console.log('✅ Models are synced with the database.');
     // Run status check immediately on startup
     updatePastBookings();

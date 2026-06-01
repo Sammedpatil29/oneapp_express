@@ -16,6 +16,10 @@ const Coupon = sequelize.define('Coupon', {
     type: DataTypes.STRING,
     allowNull: false
   },
+  max_discount: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
   min_order: {
     type: DataTypes.STRING,
     allowNull: false
