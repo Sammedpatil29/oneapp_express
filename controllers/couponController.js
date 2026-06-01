@@ -6,14 +6,14 @@ const Coupon = require('../models/couponModel');
  */
 exports.createCoupon = async (req, res) => {
   try {
-    const { code, discount, min_order, expiry_date, is_active, condition } = req.body;
+    const { code, discount, max_discount, min_order, expiry_date, is_active, condition } = req.body;
     
     if (!code || !discount || !min_order || !expiry_date) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
     const newCoupon = await Coupon.create({
-      code, discount, min_order, expiry_date, is_active, condition
+      code, discount, max_discount, min_order, expiry_date, is_active, condition
     });
 
     res.status(201).json({ success: true, message: 'Coupon created successfully', data: newCoupon });
