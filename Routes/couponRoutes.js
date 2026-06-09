@@ -1,18 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const {
-  createCoupon,
-  getAllCoupons,
-  getCouponById,
-  updateCoupon,
-  deleteCoupon
-} = require('../controllers/couponController');
+const couponController = require('../controllers/couponController');
 
-// CRUD Routes for Coupons
-router.post('/', createCoupon);
-router.get('/', getAllCoupons);
-router.get('/:id', getCouponById);
-router.put('/:id', updateCoupon);
-router.delete('/:id', deleteCoupon);
+// Route: /api/grocery-coupons
+router.post('/', couponController.createCoupon);
+router.get('/', couponController.getAllCoupons);
+router.get('/:id', couponController.getCouponById);
+router.put('/:id', couponController.updateCoupon);
+router.delete('/:id', couponController.deleteCoupon);
 
 module.exports = router;

@@ -88,7 +88,9 @@ sequelize
     try {
       await sequelize.query(`
         ALTER TABLE "grocery coupons" 
-        ADD COLUMN IF NOT EXISTS "max_discount" VARCHAR(255);
+        ADD COLUMN IF NOT EXISTS "max_discount" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "include" JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "exclude" JSONB DEFAULT '[]'::jsonb;
       `);
     } catch (alterErr) {
       console.log('⚠️ Grocery coupons alter skipped (already updated or table missing)');
