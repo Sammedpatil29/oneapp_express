@@ -35,6 +35,16 @@ const Coupon = sequelize.define('Coupon', {
   condition: {
     type: DataTypes.STRING,
     allowNull: true
+  },
+  include: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: []
+  },
+  exclude: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: []
   }
 }, {
   tableName: 'grocery coupons',

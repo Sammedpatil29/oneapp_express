@@ -1,102 +1,58 @@
 const Coupon = require('../models/couponModel');
 
-/**
- * Create a new Coupon
- * POST /api/coupons
- */
+// Create a new coupon
 exports.createCoupon = async (req, res) => {
   try {
-    const { code, discount, max_discount, min_order, expiry_date, is_active, condition } = req.body;
-    
-    if (!code || !discount || !min_order || !expiry_date) {
-      return res.status(400).json({ success: false, message: 'Missing required fields' });
-    }
-
-    const newCoupon = await Coupon.create({
-      code, discount, max_discount, min_order, expiry_date, is_active, condition
-    });
-
-    res.status(201).json({ success: true, message: 'Coupon created successfully', data: newCoupon });
+    const coupon = await Coupon.create(req.body);
+    res.status(201).json({ success: true, data: coupon });
   } catch (error) {
-    console.error('Create Coupon Error:', error);
-    if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(409).json({ success: false, message: 'Coupon code already exists' });
-    }
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * Get All Coupons
- * GET /api/coupons
- */
+// Get all coupons
 exports.getAllCoupons = async (req, res) => {
   try {
     const coupons = await Coupon.findAll();
-    res.status(200).json({ success: true, count: coupons.length, data: coupons });
+    res.status(200).json({ success: true, data: coupons });
   } catch (error) {
-    console.error('Get All Coupons Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * Get Coupon by ID
- * GET /api/coupons/:id
- */
+// Get coupon by ID
 exports.getCouponById = async (req, res) => {
   try {
-    const { id } = req.params;
-    const coupon = await Coupon.findByPk(id);
-    
-    if (!coupon) {
-      return res.status(404).json({ success: false, message: 'Coupon not found' });
-    }
-
+    const coupon = await Coupon.findByPk(req.params.id);
+    if (!coupon) return res.status(404).json({ success: false, message: 'Coupon not found' });
     res.status(200).json({ success: true, data: coupon });
   } catch (error) {
-    console.error('Get Coupon Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * Update a Coupon
- * PUT /api/coupons/:id
- */
+// Update coupon
 exports.updateCoupon = async (req, res) => {
   try {
-    const { id } = req.params;
-    const [updatedRowsCount] = await Coupon.update(req.body, { where: { id } });
-
-    if (updatedRowsCount === 0) {
-      return res.status(404).json({ success: false, message: 'Coupon not found or no changes made' });
-    }
-
-    const updatedCoupon = await Coupon.findByPk(id);
-    res.status(200).json({ success: true, message: 'Coupon updated successfully', data: updatedCoupon });
+    const coupon = await Coupon.findByPk(req.params.id);
+    if (!coupon) return res.status(404).json({ success: false, message: 'Coupon not found' });
+    
+    await coupon.update(req.body);
+    res.status(200).json({ success: true, message: 'Coupon updated successfully', data: coupon });
   } catch (error) {
-    console.error('Update Coupon Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * Delete a Coupon
- * DELETE /api/coupons/:id
- */
+// Delete coupon
 exports.deleteCoupon = async (req, res) => {
   try {
-    const { id } = req.params;
-    const deleted = await Coupon.destroy({ where: { id } });
-
-    if (deleted) {
-      return res.status(200).json({ success: true, message: 'Coupon deleted successfully' });
-    }
-
-    return res.status(404).json({ success: false, message: 'Coupon not found' });
+    const coupon = await Coupon.findByPk(req.params.id);
+    if (!coupon) return res.status(404).json({ success: false, message: 'Coupon not found' });
+    
+    await coupon.destroy();
+    res.status(200).json({ success: true, message: 'Coupon deleted successfully' });
   } catch (error) {
-    console.error('Delete Coupon Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
