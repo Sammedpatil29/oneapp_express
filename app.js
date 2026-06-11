@@ -79,7 +79,9 @@ sequelize
         ALTER TABLE "metadata" 
         ADD COLUMN IF NOT EXISTS "locations" JSONB DEFAULT '[]'::jsonb,
         ADD COLUMN IF NOT EXISTS "status" JSONB DEFAULT '["active"]'::jsonb,
-        ADD COLUMN IF NOT EXISTS "categories" JSONB DEFAULT '[]'::jsonb;
+        ADD COLUMN IF NOT EXISTS "categories" JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "roles" JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "routes" JSONB DEFAULT '[]'::jsonb;
       `);
     } catch (alterErr) {
       console.log('⚠️ Metadata alter skipped (already updated or table missing)');

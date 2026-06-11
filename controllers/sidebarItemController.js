@@ -1,5 +1,6 @@
 const SidebarItem = require('../models/sidebarItemModel');
 const { Op } = require('sequelize');
+const jwt = require('jsonwebtoken');
 
 // Create a new sidebar item
 exports.createItem = async (req, res) => {
@@ -30,28 +31,55 @@ exports.seedItems = async (req, res) => {
 // Get all sidebar items
 exports.getAllItems = async (req, res) => {
   try {
-    const whereClause = {};
-    // Optional: Filter active only
-    if (req.query.active) {
-      whereClause.is_active = req.query.active === 'true';
-    }
-    // Optional: Filter by role (returns items that require this role, OR items that require no role)
-    if (req.query.role) {
-      whereClause[Op.or] = [
-        { requiredRole: { [Op.contains]: [req.query.role] } }, // Array contains the specific role
-        { requiredRole: null },                                // No role specified
-        { requiredRole: [] }                                   // Empty array (no role required)
-      ];
-    }
-
     const items = await SidebarItem.findAll({ 
-      where: whereClause,
       order: [['id', 'ASC']] // Keeps order consistent
     });
     res.status(200).json({ success: true, count: items.length, data: items });
   } catch (error) {
     console.error('Error fetching sidebar items:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch items', error: error.message });
+  }
+};
+
+// Get valid sidebar items for logged-in user based on role
+exports.getValidItems = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    let userRole;
+    
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+      userRole = decoded.role || 'user';
+    } catch (err) {
+      try {
+        const decodedAdmin = jwt.verify(token, process.env.JWT_SECRET || "django-insecure-0v(fl_v5t97hk)0mx&qq!b80ua)@-a@2e(5v4nac!$3l(m@9#(");
+        userRole = decodedAdmin.role || 'admin';
+      } catch (adminErr) {
+        return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+      }
+    }
+
+    const items = await SidebarItem.findAll({ 
+      where: {
+        is_active: true,
+        [Op.or]: [
+          { requiredRole: { [Op.contains]: [userRole] } }, 
+          { requiredRole: null },                                
+          { requiredRole: { [Op.eq]: [] } },
+          { requiredRole: { [Op.eq]: '[]' } }
+        ]
+      },
+      order: [['id', 'ASC']] 
+    });
+    res.status(200).json({ success: true, count: items.length, data: items });
+  } catch (error) {
+    console.error('Error fetching valid sidebar items:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch valid items', error: error.message });
   }
 };
 
