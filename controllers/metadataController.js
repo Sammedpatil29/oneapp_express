@@ -3,7 +3,7 @@ const Metadata = require('../models/metadataModel'); // Ensure the model is in t
 /**
  * Query specific metadata fields
  * POST /api/metadata/query
- * Body Example: { "fields": ["categories", "status"] }
+ * Body Example: { "fields": ["categories", "status", "roles", "routes"] }
  */
 exports.queryMetadata = async (req, res) => {
   try {
@@ -58,11 +58,37 @@ exports.getMetadata = async (req, res) => {
 /**
  * Update Metadata
  * PATCH /api/metadata
- * Body: { polygon: [...], categories: [...], status: [...], locations: [...] }
+ * Body: { polygon: [...], categories: [...], status: [...], locations: [...], roles: [...], routes: [...] }
  */
 exports.updateMetadata = async (req, res) => {
   try {
-    const updateData = req.body;
+    const { polygon, locations, status, categories, roles, routes } = req.body;
+    const updateData = {};
+
+    const isArray = (val) => Array.isArray(val);
+
+    if (polygon !== undefined) updateData.polygon = polygon;
+    
+    if (locations !== undefined) {
+      if (!isArray(locations)) return res.status(400).json({ success: false, message: 'locations must be an array' });
+      updateData.locations = locations;
+    }
+    if (status !== undefined) {
+      if (!isArray(status)) return res.status(400).json({ success: false, message: 'status must be an array' });
+      updateData.status = status;
+    }
+    if (categories !== undefined) {
+      if (!isArray(categories)) return res.status(400).json({ success: false, message: 'categories must be an array' });
+      updateData.categories = categories;
+    }
+    if (roles !== undefined) {
+      if (!isArray(roles)) return res.status(400).json({ success: false, message: 'roles must be an array' });
+      updateData.roles = roles;
+    }
+    if (routes !== undefined) {
+      if (!isArray(routes)) return res.status(400).json({ success: false, message: 'routes must be an array' });
+      updateData.routes = routes;
+    }
 
     // Find existing record or create new one
     let metadata = await Metadata.findOne();

@@ -6,6 +6,7 @@ const sidebarItemController = require('../controllers/sidebarItemController');
 router.post('/create', sidebarItemController.createItem);
 router.post('/seed', sidebarItemController.seedItems); // Route to seed your initial JSON array
 
+router.get('/valid', sidebarItemController.getValidItems);
 router.get('/', sidebarItemController.getAllItems);
 router.get('/:id', sidebarItemController.getItemById);
 

@@ -25,6 +25,18 @@ const Metadata = sequelize.define('Metadata', {
     type: DataTypes.JSONB,
     allowNull: true,
     defaultValue: []
+  },
+  roles: {
+    // Stores roles as an array, e.g., ['admin', 'manager', 'user']
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: []
+  },
+  routes: {
+    // Stores routes as an array, e.g., ['/home', '/dashboard']
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: []
   }
 }, {
   timestamps: true,

@@ -3,6 +3,7 @@ const DineoutOrder = require('../models/dineoutOrderModel');
 const Booking = require('../models/bookingModel');
 const Ride = require('../models/rideModel');
 const User = require('../models/customUserModel');
+const { Op } = require('sequelize');
 
 /**
  * Get All Orders based on Service
@@ -10,27 +11,45 @@ const User = require('../models/customUserModel');
  */
 exports.getAllOrders = async (req, res) => {
   try {
-    const { service, status } = req.query;
+    const { service, status, startDate, endDate } = req.query;
     let orders = [];
 
     if (!service) {
       return res.status(400).json({ success: false, message: 'Service query parameter is required (grocery, dineout, event, ride)' });
     }
 
+    const dateRangeWhere = {};
+    if (startDate && endDate) {
+      const startMs = parseInt(startDate);
+      const endMs = parseInt(endDate);
+
+      // Ensure timestamps are in milliseconds
+      const actualStartDate = new Date(startMs < 100000000000 ? startMs * 1000 : startMs);
+      const actualEndDate = new Date(endMs < 100000000000 ? endMs * 1000 : endMs);
+
+      dateRangeWhere.createdAt = {
+        [Op.between]: [actualStartDate, actualEndDate]
+      };
+    }
+
     switch (service.toLowerCase()) {
       case 'grocery':
-        const groceryWhere = {};
+        const groceryWhere = { ...dateRangeWhere };
         if (status) groceryWhere.status = status;
 
         orders = await GroceryOrder.findAll({
           where: groceryWhere,
+          // Include User model for grocery orders
+          // Note: This assumes a `User` association is defined in `groceryOrderModel.js`
+          // If not, you might need to define it or fetch user details separately.
+          // Based on the context, `GroceryOrder.belongsTo(User, { foreignKey: 'user_id' });` exists.
           include: [{ model: User, attributes: ['id', 'first_name', 'last_name', 'phone'] }],
           order: [['createdAt', 'DESC']]
         });
         break;
 
       case 'dineout':
-        const dineoutWhere = {};
+        const dineoutWhere = { ...dateRangeWhere };
         if (status) dineoutWhere.status = status;
         
         orders = await DineoutOrder.findAll({
@@ -40,14 +59,18 @@ exports.getAllOrders = async (req, res) => {
         break;
 
       case 'event':
-        const eventWhere = {};
+        const eventWhere = { ...dateRangeWhere };
         if (status) eventWhere.status = status;
 
         orders = await Booking.findAll({
           where: eventWhere,
+          // Include User model for event bookings if needed, similar to grocery
+          // include: [{ model: User, attributes: ['id', 'first_name', 'last_name', 'phone'] }],
           order: [['createdAt', 'DESC']]
         });
         break;
+
+      // Assuming Ride model also has a `createdAt` field
 
       case 'ride':
         const rideWhere = {};
@@ -55,6 +78,9 @@ exports.getAllOrders = async (req, res) => {
 
         orders = await Ride.findAll({
           where: rideWhere,
+          // Include User model for ride orders
+          // Note: This assumes a `User` association is defined in `rideModel.js`
+          // Based on the context, `User.hasMany(Ride, { foreignKey: "userId" }); Ride.belongsTo(User, { foreignKey: "userId" });` exists.
           include: [{ model: User, attributes: ['id', 'first_name', 'last_name', 'phone'] }],
           order: [['createdAt', 'DESC']]
         });
