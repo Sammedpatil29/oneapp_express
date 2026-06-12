@@ -1,5 +1,6 @@
 const GroceryCartItem = require('../models/groceryCartItem');
 const GroceryItem = require('../models/groceryItem');
+const Coupon = require('../models/couponModel');
 const { Op } = require('sequelize');
 const sequelize = require('../db');
 
@@ -175,63 +176,68 @@ exports.getCart = async (req, res) => {
     if (coupon) {
       const code = coupon.toUpperCase();
       
-      // Mock User Order Count (Replace with: await Order.count({ where: { userId } }))
-      const userOrderCount = 0; 
+      const promo = await Coupon.findOne({ where: { code, is_active: true } });
 
-      // Mock Coupons (Replace with DB lookup)
-      const coupons = {
-        'WELCOME50': { 
-          type: 'flat', 
-          value: 50, 
-          minOrder: 299, 
-          requiresNewUser: true 
-        },
-        'SAVE10': { 
-          type: 'percent', 
-          value: 10, 
-          max: 100, 
-          minOrder: 500,
-          excludedCategories: ['oil&ghee', 'milk'] 
-        }
-      };
-
-      const promo = coupons[code];
-      
       if (promo) {
-        let isValid = true;
-        let eligibleAmount = totalSellingPrice;
+        const currentDate = new Date();
+        const expiryDate = new Date(promo.expiry_date);
+        
+        if (currentDate > expiryDate) {
+          couponStatus = 'invalid';
+          couponMessage = 'Coupon has expired';
+        } else {
+          let eligibleAmount = 0;
 
-        // 1. Check New User Condition
-        if (promo.requiresNewUser && userOrderCount > 0) {
-          isValid = false;
-          couponStatus = 'not_applicable';
-          couponMessage = 'Coupon is valid only for new users';
-        }
+          // Calculate Eligible Amount based on include/exclude
+          items.forEach(item => {
+            const category = item.category ? item.category.toLowerCase() : '';
+            let isEligible = true;
 
-        // 2. Check Excluded Categories (Calculate eligible amount)
-        if (isValid && promo.excludedCategories) {
-          eligibleAmount = items.reduce((sum, item) => {
-            const isExcluded = item.category && promo.excludedCategories.some(cat => 
-              item.category.toLowerCase().includes(cat.toLowerCase())
-            );
-            return isExcluded ? sum : sum + item.total;
-          }, 0);
-        }
-
-        if (isValid) {
-          if (totalSellingPrice >= promo.minOrder) {
-            if (promo.type === 'flat') {
-              couponDiscount = promo.value;
-            } else if (promo.type === 'percent') {
-              couponDiscount = Math.min((eligibleAmount * promo.value) / 100, promo.max);
+            // Check Includes
+            if (promo.include && promo.include.length > 0) {
+              isEligible = promo.include.some(inc => category.includes(inc.toLowerCase()));
             }
 
-            if (couponDiscount > 0) {
-              couponStatus = 'applied';
-              couponMessage = 'Coupon applied successfully';
-              
-              if (eligibleAmount < totalSellingPrice) {
-                couponMessage = 'Coupon applied on eligible items only';
+            // Check Excludes
+            if (isEligible && promo.exclude && promo.exclude.length > 0) {
+              const isExcluded = promo.exclude.some(exc => category.includes(exc.toLowerCase()));
+              if (isExcluded) isEligible = false;
+            }
+
+            if (isEligible) {
+              eligibleAmount += item.total;
+            }
+          });
+
+          const minOrder = parseFloat(promo.min_order) || 0;
+
+          if (totalSellingPrice >= minOrder) {
+            if (eligibleAmount > 0) {
+              const discountStr = promo.discount.toString();
+              if (discountStr.includes('%')) {
+                const percentage = parseFloat(discountStr.replace('%', ''));
+                couponDiscount = (eligibleAmount * percentage) / 100;
+              } else {
+                couponDiscount = parseFloat(discountStr);
+                if (couponDiscount > eligibleAmount) couponDiscount = eligibleAmount; // Cap flat discount to eligible amount
+              }
+
+              // Apply Max Discount
+              const maxDiscount = parseFloat(promo.max_discount);
+              if (maxDiscount && couponDiscount > maxDiscount) {
+                couponDiscount = maxDiscount;
+              }
+
+              if (couponDiscount > 0) {
+                couponStatus = 'applied';
+                couponMessage = 'Coupon applied successfully';
+                
+                if (eligibleAmount < totalSellingPrice) {
+                  couponMessage = 'Coupon applied on eligible items only';
+                }
+              } else {
+                couponStatus = 'not_applicable';
+                couponMessage = 'Coupon not applicable on items in cart';
               }
             } else {
               couponStatus = 'not_applicable';
@@ -239,7 +245,7 @@ exports.getCart = async (req, res) => {
             }
           } else {
             couponStatus = 'not_applicable';
-            couponMessage = `Add items worth ₹${(promo.minOrder - totalSellingPrice).toFixed(2)} more to apply this coupon`;
+            couponMessage = `Add items worth ₹${(minOrder - totalSellingPrice).toFixed(2)} more to apply this coupon`;
           }
         }
       } else {
@@ -340,4 +346,3 @@ exports.removeFromCart = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-

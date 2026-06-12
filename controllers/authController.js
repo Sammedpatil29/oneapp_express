@@ -273,4 +273,22 @@ async function updateFcmToken(req, res) {
   }
 }
 
-module.exports = { verifyToken, login, register, getUser, updateUser, updateFcmToken };
+/**
+ * 7. Get All Users
+ * GET /users
+ * Fetches a list of all users.
+ */
+async function getAllUsers(req, res) {
+  try {
+    const users = await User.findAll({
+      order: [['date_joined', 'DESC']]
+    });
+
+    return res.status(200).json({ success: true, count: users.length, data: users });
+  } catch (error) {
+    console.error('Get All Users Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+}
+
+module.exports = { verifyToken, login, register, getUser, updateUser, updateFcmToken, getAllUsers };

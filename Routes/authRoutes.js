@@ -1,7 +1,7 @@
 // routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
-const { verifyToken, login, register, getUser, updateUser, updateFcmToken } = require('../controllers/authController.js');
+const { verifyToken, login, register, getUser, updateUser, updateFcmToken, getAllUsers } = require('../controllers/authController.js');
 
 // 1. Verify Token (Call this on app startup)
 router.get('/verify-token', verifyToken);
@@ -20,5 +20,8 @@ router.patch('/user', updateUser);
 
 // 6. Update FCM Token
 router.patch('/fcm-token', updateFcmToken);
+
+// 7. Get All Users
+router.get('/users', getAllUsers);
 
 module.exports = router;

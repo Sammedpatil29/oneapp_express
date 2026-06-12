@@ -130,4 +130,17 @@ async function getOnlineRiders(req, res) {
   }
 }
 
-module.exports = { createRider, createRiderHandler, verifyRiderDocs, loginRider, getOnlineRiders };
+async function getAllRiders(req, res) {
+  try {
+    const riders = await Rider.findAll({
+      attributes: { exclude: ['password'] },
+      order: [['createdAt', 'DESC']]
+    });
+    res.status(200).json({ success: true, count: riders.length, data: riders });
+  } catch (error) {
+    console.error('Error fetching all riders:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch riders' });
+  }
+}
+
+module.exports = { createRider, createRiderHandler, verifyRiderDocs, loginRider, getOnlineRiders, getAllRiders };

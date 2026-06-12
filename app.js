@@ -53,6 +53,9 @@ const groceryOrderRoutes = require('./Routes/groceryOrderRoutes');
 const metadataRoutes = require('./Routes/metadataRoutes');
 const adminRoutes = require('./Routes/adminRoutes');
 const adminOrderRoutes = require('./Routes/adminOrderRoutes');
+const sidebarItemRoutes = require('./Routes/sidebarItemRoutes');
+const groceryCouponRoutes = require('./Routes/couponRoutes');
+
 
 const sequelize = require('./db');
 const updatePastBookings = require('./cron/bookingStatusUpdater');
@@ -68,8 +71,33 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // ===== Sequelize sync =====
 sequelize
-  .sync({ alter: true })
-  .then(() => {
+  .sync() // Removed { alter: true } to stop it from crashing on the User table
+  .then(async () => {
+    // Safely add new columns to metadata without affecting existing data
+    try {
+      await sequelize.query(`
+        ALTER TABLE "metadata" 
+        ADD COLUMN IF NOT EXISTS "locations" JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "status" JSONB DEFAULT '["active"]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "categories" JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "roles" JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "routes" JSONB DEFAULT '[]'::jsonb;
+      `);
+    } catch (alterErr) {
+      console.log('⚠️ Metadata alter skipped (already updated or table missing)');
+    }
+
+    try {
+      await sequelize.query(`
+        ALTER TABLE "grocery coupons" 
+        ADD COLUMN IF NOT EXISTS "max_discount" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "include" JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "exclude" JSONB DEFAULT '[]'::jsonb;
+      `);
+    } catch (alterErr) {
+      console.log('⚠️ Grocery coupons alter skipped (already updated or table missing)');
+    }
+
     console.log('✅ Models are synced with the database.');
     // Run status check immediately on startup
     updatePastBookings();
@@ -107,6 +135,8 @@ app.use('/api/dineout', dineoutRoutes);
 app.use('/api/metadata', metadataRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/orders', adminOrderRoutes);
+app.use('/api/sidebar-items', sidebarItemRoutes);
+app.use('/api/grocery-coupons', groceryCouponRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {
