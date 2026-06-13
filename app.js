@@ -55,6 +55,7 @@ const adminRoutes = require('./Routes/adminRoutes');
 const adminOrderRoutes = require('./Routes/adminOrderRoutes');
 const sidebarItemRoutes = require('./Routes/sidebarItemRoutes');
 const groceryCouponRoutes = require('./Routes/couponRoutes');
+const ticketRoutes = require('./Routes/ticketRoutes');
 
 
 const sequelize = require('./db');
@@ -137,6 +138,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/admin/orders', adminOrderRoutes);
 app.use('/api/sidebar-items', sidebarItemRoutes);
 app.use('/api/grocery-coupons', groceryCouponRoutes);
+app.use('/api/tickets', ticketRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {
