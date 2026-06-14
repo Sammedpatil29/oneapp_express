@@ -5,22 +5,26 @@ const { Op } = require('sequelize');
 
 exports.createTicket = async (req, res) => {
   try {
-    // Payload: { token, title, details, orderId, orderService }
-    const { token, title, details, orderId, orderService } = req.body;
+    // Payload: { token, phone, title, details, orderId, orderService }
+    const { token, phone, title, details, orderId, orderService } = req.body;
     
-    if (!token) {
-      return res.status(401).json({ success: false, message: 'No token provided' });
+    if (!token && !phone) {
+      return res.status(401).json({ success: false, message: 'No token or phone provided' });
     }
 
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
-    } catch (err) {
-      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    let user;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+        user = await User.findByPk(decoded.id || decoded.user_id);
+      } catch (err) {
+        return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+      }
+    } else if (phone) {
+      user = await User.findOne({ where: { phone } });
     }
 
-    // Get user details
-    const user = await User.findByPk(decoded.id || decoded.user_id);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
