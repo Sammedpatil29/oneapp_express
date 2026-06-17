@@ -157,7 +157,7 @@ exports.getOrderById = async (req, res) => {
  */
 exports.updateOrderStatus = async (req, res) => {
   try {
-    const { service, orderId, status } = req.body;
+    const { service, orderId, status, items } = req.body;
 
     if (!service || !orderId || !status) {
       return res.status(400).json({ success: false, message: 'Service, orderId, and status are required' });
@@ -172,6 +172,7 @@ exports.updateOrderStatus = async (req, res) => {
         if (order) {
           order.status = status;
           order.timeline = [...(order.timeline || []), { status: status, time: new Date() }];
+          order.cart_items = items;
           await order.save();
           updated = true;
         }
