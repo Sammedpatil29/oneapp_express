@@ -7,6 +7,7 @@ const { verifyUserJwtToken } = require('../utils/jwttoken');
 const User = require('../models/customUserModel');
 const AdminUser = require('../models/adminUser');
 const Rider = require('../models/ridersModel');
+const { Op } = require('sequelize');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_S5RLYqr6y2I6xs',
@@ -320,6 +321,45 @@ exports.getOrders = async (req, res) => {
     res.status(200).json({ success: true, data: orders });
   } catch (error) {
     console.error('Error fetching grocery orders:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Get Active Grocery Orders for the logged-in user
+ * GET /api/grocery-order/active
+ * Headers: Authorization: Bearer <token>
+ */
+exports.activeOrders = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+    const userId = decoded.id;
+
+    const orders = await GroceryOrder.findAll({
+      where: { 
+        user_id: userId,
+        status: {
+          [Op.notIn]: ['DELIVERED', 'CANCELLED', 'REFUNDED', 'delivered', 'cancelled', 'refunded']
+        }
+      },
+      order: [['createdAt', 'DESC']]
+    });
+
+    const formattedOrders = orders.map(order => ({
+      id: order.id,
+      status: order.status,
+      items: order.cart_items
+    }));
+
+    res.status(200).json({ success: true, data: formattedOrders });
+  } catch (error) {
+    console.error('Error fetching active grocery orders:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
