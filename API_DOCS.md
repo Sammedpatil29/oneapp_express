@@ -1268,6 +1268,30 @@ Bulk insert multiple sidebar items at once.
     ]
     ```
 
+---
+
+## Ask Pintu (AI Data Analysis)
+
+### Ask a Question
+Sends a natural language question to the server, which uses an AI to query the database and return a plain text answer.
+
+*   **URL:** `/api/ask-pintu/query`
+*   **Method:** `POST`
+*   **Body:**
+    ```json
+    {
+      "question": "Give me all grocery order details from the last 30 days"
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "success": true,
+      "text": "Based on the data, there were 15 grocery orders in the last 30 days, with a total value of $1,250.50.",
+      "sql": "SELECT * FROM \"grocery_orders\" WHERE \"createdAt\" >= NOW() - INTERVAL '30 days'"
+    }
+    ```
+
 ### Get All Sidebar Items
 Fetches all sidebar items. Can be filtered by active status and role.
 *   **URL:** `/api/sidebar-items`
