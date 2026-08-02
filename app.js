@@ -58,6 +58,7 @@ const groceryCouponRoutes = require('./Routes/couponRoutes');
 const ticketRoutes = require('./Routes/ticketRoutes');
 const emailRoutes = require('./Routes/emailRoutes');
 const groceryDamage = require('./Routes/groceryDamageRoutes');
+const askPintuRoutes = require('./Routes/askPintuRoutes.js');
 
 
 
@@ -145,6 +146,7 @@ app.use('/api/grocery-coupons', groceryCouponRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/grocery-damage', groceryDamage)
+app.use('/api/ask-pintu', askPintuRoutes);
 
 // ===== Root route =====
 app.get('/', (req, res) => {
