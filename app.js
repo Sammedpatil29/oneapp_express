@@ -164,6 +164,18 @@ app.use('/ota', (req, res, next) => {
   next();
 }, express.static(otaPublicDir));
 
+app.get(['/ota', '/ota/'], (req, res) => {
+  res.json({
+    success: true,
+    message: '🚀 OtaKit OTA Update Server is running!',
+    endpoints: {
+      oneapp_manifest: '/ota/manifests/io.ionic.oneapp/__base__/__default__/manifest.json',
+      partner_manifest: '/ota/manifests/io.oneapp.partner/__base__/__default__/manifest.json',
+      bundles: '/ota/bundles/'
+    }
+  });
+});
+
 // ===== Root route =====
 app.get('/', (req, res) => {
   res.send('✅ Express + Socket.IO server is running!');
