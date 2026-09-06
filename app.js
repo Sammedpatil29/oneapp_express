@@ -58,6 +58,9 @@ const groceryCouponRoutes = require('./Routes/couponRoutes');
 const ticketRoutes = require('./Routes/ticketRoutes');
 const emailRoutes = require('./Routes/emailRoutes');
 const groceryDamage = require('./Routes/groceryDamageRoutes');
+const askPintuRoutes = require('./Routes/askPintuRoutes.js');
+const otaRoutes = require('./Routes/otaRoutes');
+const path = require('path');
 
 
 
@@ -145,6 +148,21 @@ app.use('/api/grocery-coupons', groceryCouponRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/grocery-damage', groceryDamage)
+app.use('/api/ask-pintu', askPintuRoutes);
+app.use('/api/ota', otaRoutes);
+
+// ✅ OTA Updates static route (serves manifests and update bundles for OtaKit)
+const otaPublicDir = path.join(__dirname, 'public', 'ota');
+if (!fs.existsSync(otaPublicDir)) {
+  fs.mkdirSync(path.join(otaPublicDir, 'bundles'), { recursive: true });
+}
+app.use('/ota', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (req.path.endsWith('.json')) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  }
+  next();
+}, express.static(otaPublicDir));
 
 // ===== Root route =====
 app.get('/', (req, res) => {
