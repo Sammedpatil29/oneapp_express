@@ -1,9 +1,9 @@
 {
-  "version": "0.0.2",
-  "url": "https://oneapp-backend.onrender.com/ota/bundles/partner-bundle-0.0.2.zip",
-  "sha256": "e779599b666e8c118ce94e0d1ff3ddf612d4a9ed4ab4dc8ee9bdd0fb09ac6189",
+  "version": "0.0.3",
+  "url": "https://pintu-api.democompany.in.net/ota/bundles/partner-bundle-0.0.3.zip",
+  "sha256": "25a6e443372aa57676e34f3f384c79b51bddc09f56d0919ff1231c5dc79c1d32",
   "size": 1974999,
-  "releaseId": "partner-rel-0.0.2-mtpws0rk",
+  "releaseId": "partner-rel-0.0.3-mtq0ozws",
   "strategy": "zip",
   "forceImmediate": false
 }
