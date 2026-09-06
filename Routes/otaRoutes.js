@@ -4,7 +4,8 @@ const otaController = require('../controllers/otaController');
 
 // Client endpoints
 router.get('/check', otaController.checkUpdate);
-router.get('/manifest/:appId/:channel?', otaController.getManifest);
+router.get('/manifest/:appId/:channel', otaController.getManifest);
+router.get('/manifest/:appId', otaController.getManifest);
 router.post('/report', otaController.reportStatus);
 
 // Management / Admin endpoints
