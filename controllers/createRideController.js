@@ -219,14 +219,29 @@ const startRiderSearch = async (rideId, io) => {
     if (!ride || ride.status !== 'searching') return;
 
     // 1. Filter Riders by Type
-    const vehicleType = ride.service_details?.type;
+    // If ride is bike, food order or grocery order -> assign to bike riders.
+    // Otherwise search for specific type (auto, cab, etc.)
+    const rawType = String(
+      ride.service_details?.type || 
+      ride.service_details?.category || 
+      ride.service_details?.service_type || 
+      'bike'
+    ).toLowerCase().trim();
+
+    let targetVehicleType = 'bike';
+    if (rawType === 'bike' || rawType === 'food' || rawType === 'grocery' || rawType === 'groceries' || rawType === 'parcel' || rawType === 'delivery') {
+      targetVehicleType = 'bike';
+    } else {
+      targetVehicleType = rawType;
+    }
+
+    console.log(`🎯 Ride ${rideId} requested type "${rawType}" mapped to vehicle_type: "${targetVehicleType}"`);
+
     const whereClause = {
       status: 'online',
+      vehicle_type: targetVehicleType,
       socket_id: { [Op.ne]: null }
     };
-    if (vehicleType) {
-      whereClause.vehicle_type = vehicleType;
-    }
 
     const riders = await Rider.findAll({ where: whereClause });
 

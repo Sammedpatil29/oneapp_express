@@ -12,6 +12,8 @@ const {
   getRiderEarnings,
   getRiderWallet,
   payRiderCommission,
+  createRiderRazorpayOrder,
+  verifyRiderRazorpayPayment,
   withdrawRiderWallet,
   getRiderReferrals,
   getRiderRides,
@@ -88,6 +90,8 @@ router.get('/earnings/:id', getRiderEarnings);
 router.get('/wallet/:id', getRiderWallet);
 router.post('/wallet/pay-commission', payRiderCommission);
 router.post('/wallet/pay', payRiderCommission);
+router.post('/wallet/razorpay/order', createRiderRazorpayOrder);
+router.post('/wallet/razorpay/verify', verifyRiderRazorpayPayment);
 router.post('/wallet/withdraw', withdrawRiderWallet);
 
 // Referrals & Rewards
