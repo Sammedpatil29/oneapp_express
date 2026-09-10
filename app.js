@@ -106,6 +106,16 @@ sequelize
       console.log('⚠️ Grocery coupons alter skipped (already updated or table missing)');
     }
 
+    try {
+      await sequelize.query(`
+        ALTER TABLE "riders" 
+        ADD COLUMN IF NOT EXISTS "email" VARCHAR(255);
+        ALTER TABLE "riders" ALTER COLUMN "password" DROP NOT NULL;
+      `);
+    } catch (alterErr) {
+      console.log('⚠️ Riders alter skipped (already updated or table missing)');
+    }
+
     console.log('✅ Models are synced with the database.');
     // Run status check immediately on startup
     updatePastBookings();

@@ -1,12 +1,15 @@
-const Rider = require('../models/ridersModel')
+const Rider = require('../models/ridersModel');
+const Ride = require('../models/rideModel');
+const { Op } = require('sequelize');
 
-const verifyUserJwtToken = require('../utils/jwttoken')
-const {createRiderJWTtoken} = require('../utils/jwttoken')
+const { verifyUserJwtToken, createRiderJWTtoken, signRiderToken } = require('../utils/jwttoken');
+const { sendEmailUtility } = require('./emailController');
 
+// In-memory OTP storage for rider authentication
+const riderEmailOtpStore = new Map();
 
 async function createRider(data) {
   try {
-    // Create a new rider entry
     const vehicleTypeMap = {
       'bike': 'bike',
       'ev_bike': 'bike',
@@ -23,19 +26,53 @@ async function createRider(data) {
       'diesel': 'diesel'
     };
 
+    // If rider with id, email or contact already exists, UPDATE their profile with onboarding details
+    let existingRider = null;
+    if (data.id) {
+      existingRider = await Rider.findByPk(data.id);
+    }
+    if (!existingRider && data.email) {
+      existingRider = await Rider.findOne({ where: { email: data.email.toLowerCase().trim() } });
+    }
+    if (!existingRider && (data.contact || data.phone)) {
+      existingRider = await Rider.findOne({ where: { contact: String(data.contact || data.phone).trim() } });
+    }
+
+    if (existingRider) {
+      if (data.name) existingRider.name = data.name;
+      if (data.contact || data.phone) existingRider.contact = String(data.contact || data.phone).trim();
+      if (data.email) existingRider.email = data.email.toLowerCase().trim();
+      if (data.image_url) existingRider.image_url = data.image_url;
+      if (data.vehicle_number) existingRider.vehicle_number = data.vehicle_number;
+      if (data.vehicle_type) existingRider.vehicle_type = vehicleTypeMap[data.vehicle_type] || existingRider.vehicle_type || 'bike';
+      if (data.fuel_type) existingRider.fuel_type = fuelTypeMap[data.fuel_type] || existingRider.fuel_type || 'petrol';
+      if (data.vehicle_model) existingRider.vehicle_model = data.vehicle_model;
+      if (data.kyc_docs) existingRider.kyc_docs = data.kyc_docs;
+      if (data.current_location && data.current_location.lat) existingRider.current_lat = data.current_location.lat;
+      if (data.current_location && data.current_location.lng) existingRider.current_lng = data.current_location.lng;
+      if (data.status) existingRider.status = data.status;
+      if (data.is_verified !== undefined) existingRider.is_verified = data.is_verified;
+
+      await existingRider.save();
+      const riderData = existingRider.toJSON();
+      delete riderData.password;
+      return riderData;
+    }
+
     const rider = await Rider.create({
-      name: data.name,
+      name: data.name || (data.email ? data.email.split('@')[0] : 'Captain'),
+      email: data.email ? data.email.toLowerCase().trim() : null,
       image_url: data.image_url || "",
       role: data.role || "captain",
       password: data.password || "captain123",
-      contact: data.contact,
+      contact: (data.contact || data.phone) ? String(data.contact || data.phone).trim() : null,
       current_lat: (data.current_location && data.current_location.lat) ? data.current_location.lat : 12.9716,
       current_lng: (data.current_location && data.current_location.lng) ? data.current_location.lng : 77.5946,
-      vehicle_number: data.vehicle_number,
+      vehicle_number: data.vehicle_number || null,
       vehicle_type: vehicleTypeMap[data.vehicle_type] || "bike",
       fuel_type: fuelTypeMap[data.fuel_type] || "petrol",
       join_date: data.join_date || new Date().toISOString().split('T')[0],
-      vehicle_model: data.vehicle_model,
+      vehicle_model: data.vehicle_model || null,
       kyc_docs: data.kyc_docs || null,
       status: data.status || "offline",
       is_verified: data.is_verified || false
@@ -46,7 +83,7 @@ async function createRider(data) {
     return riderData;
   } catch (error) {
     console.error("Error creating rider:", error);
-    throw new Error("Failed to create rider");
+    throw new Error("Failed to save rider profile: " + error.message);
   }
 }
 
@@ -235,6 +272,9 @@ async function updateRiderProfile(req, res) {
     if (fuel_type) rider.fuel_type = fuel_type;
     if (vehicle_type) rider.vehicle_type = vehicle_type;
     if (image_url) rider.image_url = image_url;
+    if (req.body.status !== undefined) {
+      rider.status = req.body.status === true || req.body.status === 'online' ? 'online' : 'offline';
+    }
 
     await rider.save();
     const riderData = rider.toJSON();
@@ -246,59 +286,146 @@ async function updateRiderProfile(req, res) {
   }
 }
 
-// 3. Get Earnings & Targets
+// 2b. Direct Status & Location Update
+async function updateRiderStatus(req, res) {
+  try {
+    const { id } = req.params;
+    const { status, lat, lng } = req.body;
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    const newStatus = status === true || status === 'online' ? 'online' : 'offline';
+    rider.status = newStatus;
+    if (lat && lng) {
+      rider.current_lat = lat;
+      rider.current_lng = lng;
+    }
+    await rider.save();
+    console.log(`[DB] Rider ${rider.id} status updated to: ${newStatus}`);
+
+    return res.status(200).json({
+      success: true,
+      message: `Captain status updated to ${newStatus}`,
+      data: { id: rider.id, status: newStatus }
+    });
+  } catch (error) {
+    console.error('Error updating rider status:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 3. Get Earnings & Targets (Synced with real database records)
 async function getRiderEarnings(req, res) {
   try {
     const { id } = req.params;
     const rider = await findRiderByIdOrFallback(id);
-    const baseEarnings = rider ? (rider.earnings || 1250) : 1250;
+    const balance = rider ? (Number(rider.earnings) || 0) : 0;
+
+    // Calculate real stats from Ride database
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const startOfWeek = new Date();
+    const day = startOfWeek.getDay();
+    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // Monday
+    startOfWeek.setDate(diff);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    let todayRides = [];
+    let weekRides = [];
+    let monthRides = [];
+
+    if (rider && rider.id) {
+      try {
+        todayRides = await Ride.findAll({
+          where: {
+            riderId: rider.id,
+            status: 'completed',
+            updatedAt: { [Op.gte]: startOfToday }
+          }
+        });
+
+        weekRides = await Ride.findAll({
+          where: {
+            riderId: rider.id,
+            status: 'completed',
+            updatedAt: { [Op.gte]: startOfWeek }
+          }
+        });
+
+        monthRides = await Ride.findAll({
+          where: {
+            riderId: rider.id,
+            status: 'completed',
+            updatedAt: { [Op.gte]: startOfMonth }
+          }
+        });
+      } catch (dbErr) {
+        console.warn('Could not query Ride table for rider stats:', dbErr.message);
+      }
+    }
+
+    const todayEarnings = todayRides.reduce((sum, r) => sum + (Number(r.fare) || 0), 0);
+    const todayCount = todayRides.length;
+
+    const weekEarnings = weekRides.reduce((sum, r) => sum + (Number(r.fare) || 0), 0);
+    const weekCount = weekRides.length;
+
+    const monthEarnings = monthRides.reduce((sum, r) => sum + (Number(r.fare) || 0), 0);
+    const monthCount = monthRides.length;
 
     const earningsData = {
       today: {
-        total_earnings: 580,
-        rides_completed: 6,
-        hours_online: '5.2 hrs',
-        fare_earnings: 480,
-        tips: 40,
-        incentives: 60
+        total_earnings: todayEarnings,
+        rides_completed: todayCount,
+        hours_online: rider?.status === 'online' ? 'Active' : '0.0 hrs',
+        fare_earnings: todayEarnings,
+        tips: 0,
+        incentives: 0
       },
       this_week: {
-        total_earnings: 3840,
-        rides_completed: 42,
+        total_earnings: weekEarnings,
+        rides_completed: weekCount,
         chart_data: [
-          { day: 'Mon', amount: 520, rides: 5 },
-          { day: 'Tue', amount: 640, rides: 7 },
-          { day: 'Wed', amount: 480, rides: 5 },
-          { day: 'Thu', amount: 720, rides: 8 },
-          { day: 'Fri', amount: 580, rides: 6 },
-          { day: 'Sat', amount: 900, rides: 11 },
+          { day: 'Mon', amount: 0, rides: 0 },
+          { day: 'Tue', amount: 0, rides: 0 },
+          { day: 'Wed', amount: 0, rides: 0 },
+          { day: 'Thu', amount: 0, rides: 0 },
+          { day: 'Fri', amount: 0, rides: 0 },
+          { day: 'Sat', amount: 0, rides: 0 },
           { day: 'Sun', amount: 0, rides: 0 }
         ]
       },
       this_month: {
-        total_earnings: 16450,
-        rides_completed: 188
+        total_earnings: monthEarnings,
+        rides_completed: monthCount
       },
       active_incentives: [
         {
           id: 'inc-1',
-          title: 'Daily Rush Hour Target',
-          description: 'Complete 8 rides today between 5 PM - 10 PM',
+          title: 'Daily Milestone Bonus',
+          description: 'Complete 8 rides today to unlock ₹150 bonus!',
           target_rides: 8,
-          completed_rides: 6,
+          completed_rides: todayCount,
           reward_amount: 150,
-          is_completed: false,
-          progress_percent: 75
+          is_completed: todayCount >= 8,
+          progress_percent: Math.min(100, Math.round((todayCount / 8) * 100))
         },
         {
           id: 'inc-2',
-          title: 'Weekend Champion Bonus',
-          description: 'Complete 25 rides over Saturday and Sunday',
-          target_rides: 25,
-          completed_rides: 11,
-          reward_amount: 500,
-          is_completed: false,
-          progress_percent: 44
+          title: 'Weekly Super Captain Target',
+          description: 'Complete 30 rides this week to unlock ₹600 bonus!',
+          target_rides: 30,
+          completed_rides: weekCount,
+          reward_amount: 600,
+          is_completed: weekCount >= 30,
+          progress_percent: Math.min(100, Math.round((weekCount / 30) * 100))
         }
       ]
     };
@@ -611,6 +738,202 @@ async function triggerRiderSos(req, res) {
   }
 }
 
+// 10. Send Email OTP for Captain Login / Onboarding
+async function sendRiderEmailOtp(req, res) {
+  try {
+    const { email } = req.body;
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    // Generate secure 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    riderEmailOtpStore.set(cleanEmail, { otp, expiresAt, attempts: 0 });
+
+    const htmlBody = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h2 style="color: #0b57d0; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">Pintu Captain</h2>
+          <p style="color: #64748b; font-size: 14px; margin-top: 4px; font-weight: 500;">Partner Portal Authentication</p>
+        </div>
+        <p style="font-size: 15px; color: #1e293b; margin-bottom: 12px;">Hello Captain,</p>
+        <p style="font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 24px;">Use the verification code below to securely authenticate your Pintu Partner account.</p>
+        <div style="background: linear-gradient(135deg, #f0f7ff 0%, #e0effe 100%); border: 2px dashed #3b82f6; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 24px;">
+          <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #1d4ed8; font-family: monospace;">${otp}</span>
+        </div>
+        <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-bottom: 20px;">⏱️ This one-time code is valid for <strong>10 minutes</strong>. For your account security, please do not share this code with anyone.</p>
+        <div style="border-top: 1px solid #f1f5f9; padding-top: 16px; margin-top: 24px;">
+          <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">© 2026 Pintu Logistics & Mobility Pvt Ltd. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+
+    // Attempt to send email
+    const emailResult = await sendEmailUtility(cleanEmail, `Your Pintu Captain Verification Code: ${otp}`, htmlBody);
+
+    console.log(`✉️ [RIDER EMAIL OTP] Sent to: ${cleanEmail} | OTP: ${otp} | Success: ${emailResult.success}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Verification code sent successfully to ' + cleanEmail
+    });
+  } catch (error) {
+    console.error('Error in sendRiderEmailOtp:', error);
+    return res.status(500).json({ success: false, message: 'Failed to send verification code. ' + error.message });
+  }
+}
+
+// 11. Verify Email OTP & Handle Login vs Onboarding Redirection
+async function verifyRiderEmailOtp(req, res) {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Email and OTP are required.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanOtp = String(otp).trim();
+
+    const record = riderEmailOtpStore.get(cleanEmail);
+    const isValid = record && record.otp === cleanOtp && Date.now() <= record.expiresAt;
+
+    if (!isValid) {
+      if (record && Date.now() > record.expiresAt) {
+        riderEmailOtpStore.delete(cleanEmail);
+        return res.status(400).json({ success: false, message: 'Verification code has expired. Please request a new one.' });
+      }
+      return res.status(400).json({ success: false, message: 'Invalid verification code. Please check and try again.' });
+    }
+
+    // Clear used OTP
+    riderEmailOtpStore.delete(cleanEmail);
+
+    // Check if Captain already exists in database
+    let rider = await Rider.findOne({ where: { email: cleanEmail } });
+    let isNewUser = false;
+
+    if (!rider) {
+      // Immediately create a registered Captain record so they are an authenticated logged-in user
+      isNewUser = true;
+      rider = await Rider.create({
+        email: cleanEmail,
+        name: cleanEmail.split('@')[0],
+        role: 'captain',
+        status: 'offline',
+        is_verified: false,
+        kyc_docs: null,
+        join_date: new Date().toISOString().split('T')[0],
+        current_lat: 12.9716,
+        current_lng: 77.5946
+      });
+      console.log(`🆕 Registered new Captain account on email OTP verification: ${rider.id} (${cleanEmail})`);
+    }
+
+    // Generate JWT authentication token
+    const tokenData = signRiderToken(rider);
+
+    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && Object.keys(rider.kyc_docs).length > 0);
+
+    let verification_status = 'pending_details';
+    if (rider.is_verified) {
+      verification_status = 'verified';
+    } else if (hasSubmittedDocs) {
+      verification_status = 'verifying';
+    }
+
+    return res.status(200).json({
+      success: true,
+      isNewUser,
+      message: isNewUser ? 'Email verified. Session created.' : 'Welcome back, Captain!',
+      tokenData,
+      is_verified: rider.is_verified || false,
+      has_submitted_docs: hasSubmittedDocs,
+      verification_status,
+      rider: {
+        id: rider.id,
+        name: rider.name,
+        email: rider.email,
+        phone: rider.contact,
+        role: rider.role || 'captain',
+        is_verified: rider.is_verified || false,
+        status: rider.status || 'offline',
+        has_submitted_docs: hasSubmittedDocs,
+        verification_status
+      }
+    });
+  } catch (error) {
+    console.error('Error in verifyRiderEmailOtp:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 12. Get Rider Auth & Verification Status
+async function getRiderAuthStatus(req, res) {
+  try {
+    let token = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
+    }
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        isAuthenticated: false,
+        message: 'No authorization token provided'
+      });
+    }
+
+    const verified = await verifyUserJwtToken(token);
+    if (!verified || !verified.user) {
+      return res.status(401).json({
+        success: false,
+        isAuthenticated: false,
+        message: 'Invalid or expired session token'
+      });
+    }
+
+    const rider = verified.user;
+    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && Object.keys(rider.kyc_docs).length > 0);
+
+    let verification_status = 'pending_details';
+    if (rider.is_verified) {
+      verification_status = 'verified';
+    } else if (hasSubmittedDocs) {
+      verification_status = 'verifying';
+    }
+
+    return res.status(200).json({
+      success: true,
+      isAuthenticated: true,
+      is_verified: rider.is_verified || false,
+      status: rider.status || 'offline',
+      has_submitted_docs: hasSubmittedDocs,
+      verification_status,
+      rider: {
+        id: rider.id,
+        name: rider.name,
+        email: rider.email,
+        phone: rider.contact,
+        role: rider.role || 'captain',
+        is_verified: rider.is_verified || false,
+        status: rider.status || 'offline',
+        has_submitted_docs: hasSubmittedDocs,
+        verification_status
+      }
+    });
+  } catch (error) {
+    console.error('Error in getRiderAuthStatus:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 module.exports = {
   createRider,
   createRiderHandler,
@@ -620,12 +943,16 @@ module.exports = {
   getAllRiders,
   getRiderProfile,
   updateRiderProfile,
+  updateRiderStatus,
   getRiderEarnings,
   getRiderWallet,
   withdrawRiderWallet,
   getRiderReferrals,
   getRiderRides,
   getRiderNotifications,
-  triggerRiderSos
+  triggerRiderSos,
+  sendRiderEmailOtp,
+  verifyRiderEmailOtp,
+  getRiderAuthStatus
 };
 

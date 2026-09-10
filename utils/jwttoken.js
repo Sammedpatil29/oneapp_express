@@ -65,19 +65,50 @@ async function verifyUserJwtToken(token) {
   }
 }
 
-async function createRiderJWTtoken(payload) {
-  const { phone, password } = payload;
+function signRiderToken(rider) {
+  const tokenPayload = {
+    user_id: rider.id,
+    role: 'rider'
+  };
 
-  if (!phone || !password) {
-    throw new Error('Phone and password are required');
-  }
-
-  const user = await Rider.findOne({
-    where: { contact: phone }
+  const token = jwt.sign(tokenPayload, JWT_SECRET, {
+    expiresIn: '7d'
   });
 
+  return {
+    token,
+    riderId: rider.id,
+    name: rider.name,
+    email: rider.email,
+    phone: rider.contact,
+    role: rider.role || 'captain',
+    is_verified: rider.is_verified || false
+  };
+}
+
+async function createRiderJWTtoken(payload) {
+  const { phone, email, contact, password } = payload;
+  const lookupIdentifier = email || phone || contact;
+
+  if (!lookupIdentifier || !password) {
+    throw new Error('Email/Phone and password are required');
+  }
+
+  let user = null;
+  if (email) {
+    user = await Rider.findOne({
+      where: { email: email.toLowerCase().trim() }
+    });
+  }
+  
+  if (!user && (phone || contact)) {
+    user = await Rider.findOne({
+      where: { contact: String(phone || contact).trim() }
+    });
+  }
+
   if (!user) {
-    throw new Error('User not found');
+    throw new Error('Captain not found');
   }
 
   // In real apps, use bcrypt for hashed password comparison
@@ -87,23 +118,7 @@ async function createRiderJWTtoken(payload) {
     throw new Error('Invalid password');
   }
 
-  // Only include safe fields in token payload
-  const tokenPayload = {
-    user_id: user.id,
-    role: 'rider'
-  };
-
-  const token = jwt.sign(tokenPayload, JWT_SECRET, {
-    expiresIn: '7d'
-  });
-
-  const tokenData = {
-    token: token,
-    riderId: user.id
-  }
-
-
-  return tokenData;
+  return signRiderToken(user);
 }
 
-module.exports = {verifyUserJwtToken, createRiderJWTtoken};
+module.exports = { verifyUserJwtToken, createRiderJWTtoken, signRiderToken };

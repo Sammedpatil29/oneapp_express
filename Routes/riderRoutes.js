@@ -8,13 +8,17 @@ const {
   getAllRiders,
   getRiderProfile,
   updateRiderProfile,
+  updateRiderStatus,
   getRiderEarnings,
   getRiderWallet,
   withdrawRiderWallet,
   getRiderReferrals,
   getRiderRides,
   getRiderNotifications,
-  triggerRiderSos
+  triggerRiderSos,
+  sendRiderEmailOtp,
+  verifyRiderEmailOtp,
+  getRiderAuthStatus
 } = require('../controllers/riderController');
 
 // Route: /api/rider
@@ -26,9 +30,16 @@ router.post('/login', loginRider);
 router.post('/verify', verifyRiderDocs);
 router.get('/online', getOnlineRiders);
 
-// Captain Profile
+// Email Verification & OTP Authentication (Passwordless)
+router.post('/send-otp', sendRiderEmailOtp);
+router.post('/verify-otp', verifyRiderEmailOtp);
+router.get('/auth/status', getRiderAuthStatus);
+
+// Captain Profile & Status
 router.get('/profile/:id', getRiderProfile);
 router.put('/profile/:id', updateRiderProfile);
+router.put('/status/:id', updateRiderStatus);
+router.post('/status', updateRiderStatus);
 
 // Earnings & Targets
 router.get('/earnings/:id', getRiderEarnings);
