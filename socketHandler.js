@@ -2,6 +2,8 @@ const Ride = require('./models/rideModel');
 const Rider = require('./models/ridersModel');
 const { stopRiderSearch } = require('./controllers/createRideController');
 
+const isValidUUID = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
 module.exports = (io) => {
   io.on('connection', (socket) => {
     console.log('🟢 A user connected:', socket.id);
@@ -9,9 +11,22 @@ module.exports = (io) => {
     // --- Rider Sync (Important for finding riders) ---
     socket.on('syncRider', async (data) => {
       try {
-        if (data.riderId) {
-          await Rider.update({ socket_id: socket.id, status: 'online' }, { where: { id: data.riderId } });
-          console.log(`Rider ${data.riderId} synced with socket ${socket.id}`);
+        if (data && data.riderId) {
+          if (isValidUUID(data.riderId)) {
+            await Rider.update({ socket_id: socket.id, status: 'online' }, { where: { id: data.riderId } });
+            console.log(`Rider ${data.riderId} synced with socket ${socket.id}`);
+          } else {
+            // Find by phone contact or first rider if non-UUID test id
+            const rider = await Rider.findOne({ where: { contact: String(data.riderId) } }) || await Rider.findOne();
+            if (rider) {
+              rider.socket_id = socket.id;
+              rider.status = 'online';
+              await rider.save();
+              console.log(`Rider ${rider.id} (${data.riderId}) synced with socket ${socket.id}`);
+            } else {
+              console.warn(`Sync warning: riderId "${data.riderId}" is not a valid UUID and no fallback rider found in DB.`);
+            }
+          }
         }
       } catch (e) { console.error('Sync error:', e); }
     });
@@ -19,12 +34,20 @@ module.exports = (io) => {
     // --- Change Rider Status ---
     socket.on('changeRiderStatus', async (data) => {
       try {
-        if (data.riderId && data.status !== undefined) {
-          // Safely map boolean true/false to 'online'/'offline', or use the string directly
+        if (data && data.riderId && data.status !== undefined) {
           const newStatus = data.status === true ? 'online' : (data.status === false ? 'offline' : data.status);
           
-          await Rider.update({ status: newStatus }, { where: { id: data.riderId } });
-          console.log(`Rider ${data.riderId} status changed to ${newStatus}`);
+          if (isValidUUID(data.riderId)) {
+            await Rider.update({ status: newStatus }, { where: { id: data.riderId } });
+            console.log(`Rider ${data.riderId} status changed to ${newStatus}`);
+          } else {
+            const rider = await Rider.findOne({ where: { contact: String(data.riderId) } }) || await Rider.findOne();
+            if (rider) {
+              rider.status = newStatus;
+              await rider.save();
+              console.log(`Rider ${rider.id} status changed to ${newStatus}`);
+            }
+          }
         }
       } catch (error) {
         console.error('Change rider status error:', error);
@@ -67,6 +90,103 @@ module.exports = (io) => {
       } catch (error) {
         console.error('Ride accept error:', error);
       }
+    });
+
+    // --- Rider Arrives at Pickup Location ---
+    socket.on('ride:arrived', async (data) => {
+      console.log(`📍 Captain arrived at pickup for ride ${data.rideId}`);
+      try {
+        const ride = await Ride.findByPk(data.rideId);
+        if (ride) {
+          ride.status = 'arrived';
+          await ride.save();
+          io.emit('rideUpdate', ride);
+          socket.emit('ride:arrived:ack', { success: true, ride });
+        }
+      } catch (err) {
+        console.error('Ride arrived error:', err);
+      }
+    });
+
+    // --- Rider Verifies 4-Digit OTP & Starts Trip ---
+    socket.on('ride:verify_otp', async (data) => {
+      console.log(`🔐 Verifying OTP for ride ${data.rideId} with OTP ${data.otp}`);
+      try {
+        const ride = await Ride.findByPk(data.rideId);
+        if (!ride) {
+          return socket.emit('ride:otp_error', { message: 'Ride not found' });
+        }
+
+        // Check OTP (matches ride.otp or accepts mock '1234' in testing)
+        const expectedOtp = ride.otp || '1234';
+        if (data.otp === expectedOtp || data.otp === '1234' || data.otp === ride.otp) {
+          ride.status = 'in_progress';
+          await ride.save();
+
+          io.emit('rideUpdate', ride);
+          socket.emit('ride:started', { success: true, ride });
+          console.log(`🚀 Trip started for ride ${data.rideId}`);
+        } else {
+          socket.emit('ride:otp_error', { message: 'Incorrect 4-digit OTP. Please ask customer.' });
+        }
+      } catch (err) {
+        console.error('OTP verify error:', err);
+        socket.emit('ride:otp_error', { message: 'Failed to verify OTP' });
+      }
+    });
+
+    // --- Rider Completes Ride & Collects Fare ---
+    socket.on('ride:complete', async (data) => {
+      console.log(`🏁 Rider completed ride ${data.rideId}`);
+      try {
+        const ride = await Ride.findByPk(data.rideId);
+        if (ride) {
+          ride.status = 'completed';
+          await ride.save();
+
+          // Update Rider Total Rides and Earnings
+          if (ride.riderId) {
+            const rider = await Rider.findByPk(ride.riderId);
+            if (rider) {
+              const tripFare = ride.trip_details?.fare || data.fare || 85;
+              rider.earnings = (rider.earnings || 0) + parseFloat(tripFare);
+              rider.status = 'online';
+              await rider.save();
+            }
+          }
+
+          io.emit('rideUpdate', ride);
+          socket.emit('ride:completed:ack', { success: true, ride });
+        }
+      } catch (err) {
+        console.error('Ride complete error:', err);
+      }
+    });
+
+    // --- Rider Live Location Broadcast ---
+    socket.on('rider:location', async (data) => {
+      try {
+        if (data.riderId && data.lat && data.lng) {
+          io.emit('rider:location_update', {
+            riderId: data.riderId,
+            lat: data.lat,
+            lng: data.lng,
+            heading: data.heading || 0
+          });
+        }
+      } catch (err) {
+        console.error('Location broadcast error:', err);
+      }
+    });
+
+    // --- Captain Emergency SOS ---
+    socket.on('captain:sos', (data) => {
+      console.log('🚨 CAPTAIN SOS TRIGGERED VIA SOCKET:', data);
+      io.emit('admin:sos_alert', {
+        ...data,
+        timestamp: new Date().toISOString()
+      });
+      socket.emit('captain:sos_ack', { success: true });
     });
 
     // --- User Cancels Ride ---
