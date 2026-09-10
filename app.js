@@ -106,6 +106,16 @@ sequelize
       console.log('⚠️ Grocery coupons alter skipped (already updated or table missing)');
     }
 
+    try {
+      await sequelize.query(`
+        ALTER TABLE "riders" 
+        ADD COLUMN IF NOT EXISTS "email" VARCHAR(255);
+        ALTER TABLE "riders" ALTER COLUMN "password" DROP NOT NULL;
+      `);
+    } catch (alterErr) {
+      console.log('⚠️ Riders alter skipped (already updated or table missing)');
+    }
+
     console.log('✅ Models are synced with the database.');
     // Run status check immediately on startup
     updatePastBookings();
@@ -163,6 +173,17 @@ app.use('/ota', (req, res, next) => {
   }
   next();
 }, express.static(otaPublicDir));
+
+// ✅ Public uploads static route (serves KYC document archives and assets)
+const uploadsPublicDir = path.join(__dirname, 'public', 'uploads');
+const kycZipsDir = path.join(uploadsPublicDir, 'kyc_zips');
+if (!fs.existsSync(kycZipsDir)) {
+  fs.mkdirSync(kycZipsDir, { recursive: true });
+}
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+}, express.static(uploadsPublicDir));
 
 app.get(['/ota', '/ota/'], (req, res) => {
   res.json({

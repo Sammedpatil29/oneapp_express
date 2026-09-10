@@ -11,17 +11,18 @@ const Rider = sequelize.define("Rider", {
 
   name: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
 
   role: {
     type: DataTypes.STRING,
     allowNull: false,
+    defaultValue: "captain",
   },
 
   password: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
 
   image_url: {
@@ -31,41 +32,51 @@ const Rider = sequelize.define("Rider", {
 
   contact: {
     type: DataTypes.STRING(10),
-    allowNull: false,
+    allowNull: true,
+    unique: true,
+  },
+
+  email: {
+    type: DataTypes.STRING,
+    allowNull: true,
     unique: true,
     validate: {
-      is: /^[0-9]{10}$/i, // validate Indian phone numbers
+      isEmail: true,
     },
   },
 
   current_lat: {
     type: DataTypes.FLOAT,
-    allowNull: false,
+    allowNull: true,
+    defaultValue: 12.9716,
   },
 
   current_lng: {
     type: DataTypes.FLOAT,
-    allowNull: false,
+    allowNull: true,
+    defaultValue: 77.5946,
   },
 
   vehicle_number: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
 
   vehicle_type: {
     type: DataTypes.ENUM("bike", "auto", "car", "van"),
-    allowNull: false,
+    allowNull: true,
+    defaultValue: "bike",
   },
 
   fuel_type: {
     type: DataTypes.ENUM("petrol", "diesel", "ev", "cng"),
-    allowNull: false,
+    allowNull: true,
+    defaultValue: "petrol",
   },
 
   vehicle_model: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
 
   kyc_docs: {
@@ -75,7 +86,8 @@ const Rider = sequelize.define("Rider", {
 
   join_date: {
     type: DataTypes.DATEONLY,
-    allowNull: false,
+    allowNull: true,
+    defaultValue: DataTypes.NOW,
   },
 
   status: {
