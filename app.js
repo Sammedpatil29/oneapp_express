@@ -222,6 +222,9 @@ app.get('/', (req, res) => {
 // ===== Initialize Socket Handler =====
 require('./socketHandler')(io);
 
+// ===== Initialize Cron Jobs =====
+require('./cron/markOffline.job');
+
 // ===== Start the server =====
 // app.listen(PORT, () => {
 //   console.log(`🚀 Server running at http://localhost:${PORT}`);
