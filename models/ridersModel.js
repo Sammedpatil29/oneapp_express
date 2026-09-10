@@ -60,6 +60,7 @@ const Rider = sequelize.define("Rider", {
   vehicle_number: {
     type: DataTypes.STRING,
     allowNull: true,
+    defaultValue: "",
   },
 
   vehicle_type: {
@@ -77,6 +78,7 @@ const Rider = sequelize.define("Rider", {
   vehicle_model: {
     type: DataTypes.STRING,
     allowNull: true,
+    defaultValue: "",
   },
 
   kyc_docs: {
@@ -91,12 +93,17 @@ const Rider = sequelize.define("Rider", {
   },
 
   status: {
-    type: DataTypes.ENUM("online", "offline", "on-ride", "inactive"),
+    type: DataTypes.ENUM("online", "offline", "on-ride", "onride", "inactive"),
     defaultValue: "offline",
   },
 
   // 🔹 Additional useful fields
   socket_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+
+  fcm_token: {
     type: DataTypes.STRING,
     allowNull: true,
   },
@@ -119,6 +126,11 @@ const Rider = sequelize.define("Rider", {
     defaultValue: 0,
   },
 
+  commission_due: {
+    type: DataTypes.FLOAT,
+    defaultValue: 0,
+  },
+
   is_verified: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
@@ -127,6 +139,11 @@ const Rider = sequelize.define("Rider", {
   last_active: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
+  },
+
+  payout_account: {
+    type: DataTypes.JSONB,
+    allowNull: true,
   },
 }, {
   timestamps: true, // adds createdAt and updatedAt
