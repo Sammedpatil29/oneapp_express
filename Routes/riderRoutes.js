@@ -8,14 +8,41 @@ const {
   getAllRiders,
   getRiderProfile,
   updateRiderProfile,
+  updateRiderStatus,
   getRiderEarnings,
   getRiderWallet,
   withdrawRiderWallet,
   getRiderReferrals,
   getRiderRides,
   getRiderNotifications,
-  triggerRiderSos
+  triggerRiderSos,
+  sendRiderEmailOtp,
+  verifyRiderEmailOtp,
+  getRiderAuthStatus,
+  checkRiderPhone,
+  uploadKycZip
 } = require('../controllers/riderController');
+
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+
+const kycStorageDir = path.join(__dirname, '..', 'public', 'uploads', 'kyc_zips');
+if (!fs.existsSync(kycStorageDir)) {
+  fs.mkdirSync(kycStorageDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, kycStorageDir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname) || '.zip';
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e6);
+    cb(null, `kyc-${uniqueSuffix}${ext}`);
+  }
+});
+const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 
 // Route: /api/rider
 // Route prefix: /api/rider
@@ -26,9 +53,18 @@ router.post('/login', loginRider);
 router.post('/verify', verifyRiderDocs);
 router.get('/online', getOnlineRiders);
 
-// Captain Profile
+// Email Verification & OTP Authentication (Passwordless)
+router.post('/send-otp', sendRiderEmailOtp);
+router.post('/verify-otp', verifyRiderEmailOtp);
+router.get('/auth/status', getRiderAuthStatus);
+router.get('/check-phone', checkRiderPhone);
+router.post('/upload-kyc-zip', upload.single('kycZip'), uploadKycZip);
+
+// Captain Profile & Status
 router.get('/profile/:id', getRiderProfile);
 router.put('/profile/:id', updateRiderProfile);
+router.put('/status/:id', updateRiderStatus);
+router.post('/status', updateRiderStatus);
 
 // Earnings & Targets
 router.get('/earnings/:id', getRiderEarnings);
