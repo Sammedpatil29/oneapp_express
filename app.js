@@ -114,6 +114,7 @@ sequelize
         ALTER TABLE "riders" 
         ADD COLUMN IF NOT EXISTS "email" VARCHAR(255),
         ADD COLUMN IF NOT EXISTS "fcm_token" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "commission_due" FLOAT DEFAULT 0,
         ADD COLUMN IF NOT EXISTS "payout_account" JSONB DEFAULT '{}'::jsonb;
         ALTER TABLE "riders" ALTER COLUMN "password" DROP NOT NULL;
         ALTER TABLE "riders" ALTER COLUMN "name" DROP NOT NULL;
@@ -121,7 +122,15 @@ sequelize
         ALTER TABLE "riders" ALTER COLUMN "contact" DROP NOT NULL;
       `);
     } catch (alterErr) {
-      console.log('⚠️ Riders alter skipped (already updated or table missing)');
+      console.log('⚠️ Riders alter skipped (already updated or table missing):', alterErr.message);
+    }
+
+    try {
+      await sequelize.query(`
+        ALTER TYPE enum_riders_status ADD VALUE IF NOT EXISTS 'onride';
+      `);
+    } catch (enumErr) {
+      console.log('⚠️ Enum onride update notice:', enumErr.message);
     }
 
     console.log('✅ Models are synced with the database.');
