@@ -111,6 +111,9 @@ sequelize
         ALTER TABLE "riders" 
         ADD COLUMN IF NOT EXISTS "email" VARCHAR(255);
         ALTER TABLE "riders" ALTER COLUMN "password" DROP NOT NULL;
+        ALTER TABLE "riders" ALTER COLUMN "name" DROP NOT NULL;
+        ALTER TABLE "riders" ALTER COLUMN "name" SET DEFAULT '';
+        ALTER TABLE "riders" ALTER COLUMN "contact" DROP NOT NULL;
       `);
     } catch (alterErr) {
       console.log('⚠️ Riders alter skipped (already updated or table missing)');
