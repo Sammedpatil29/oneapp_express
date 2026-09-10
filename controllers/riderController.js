@@ -820,7 +820,7 @@ async function verifyRiderEmailOtp(req, res) {
       isNewUser = true;
       rider = await Rider.create({
         email: cleanEmail,
-        name: cleanEmail.split('@')[0],
+        name: null, // User will provide their real legal name in onboarding
         role: 'captain',
         status: 'offline',
         is_verified: false,
@@ -934,6 +934,165 @@ async function getRiderAuthStatus(req, res) {
   }
 }
 
+// 13. Check if phone is already linked to an existing rider
+async function checkRiderPhone(req, res) {
+  try {
+    const rawPhone = req.query.phone || req.body.phone;
+    const riderId = req.query.riderId || req.body.riderId;
+
+    if (!rawPhone) {
+      return res.status(400).json({ success: false, message: 'Phone number is required' });
+    }
+
+    const cleanPhone = String(rawPhone).trim();
+    if (cleanPhone.length !== 10) {
+      return res.status(400).json({ success: false, message: 'Phone number must be exactly 10 digits' });
+    }
+
+    const whereClause = {
+      contact: cleanPhone
+    };
+
+    if (riderId) {
+      whereClause.id = { [Op.ne]: riderId };
+    }
+
+    const existingRider = await Rider.findOne({ where: whereClause });
+
+    if (existingRider) {
+      return res.status(200).json({
+        success: true,
+        exists: true,
+        message: 'This mobile number is already linked with another Captain account'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      exists: false,
+      message: 'Mobile number is available'
+    });
+  } catch (error) {
+    console.error('Error in checkRiderPhone:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 14. Handle KYC ZIP upload and update rider details
+async function uploadKycZip(req, res) {
+  try {
+    const file = req.file;
+    const {
+      riderId,
+      name,
+      contact,
+      email,
+      vehicle_type,
+      vehicle_model,
+      vehicle_number,
+      fuel_type,
+      vehicle_year,
+      kyc_docs
+    } = req.body;
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'No KYC documents ZIP file received' });
+    }
+
+    const zipRelativeUrl = `/uploads/kyc_zips/${file.filename}`;
+    console.log(`📦 KYC ZIP uploaded for rider: ${riderId || contact} -> ${zipRelativeUrl} (${(file.size / 1024).toFixed(1)} KB)`);
+
+    let parsedKycDocs = {};
+    if (kyc_docs) {
+      try {
+        parsedKycDocs = typeof kyc_docs === 'string' ? JSON.parse(kyc_docs) : kyc_docs;
+      } catch (e) {
+        parsedKycDocs = {};
+      }
+    }
+    parsedKycDocs.zip_archive = {
+      url: zipRelativeUrl,
+      filename: file.filename,
+      size: file.size,
+      uploadedAt: new Date().toISOString()
+    };
+
+    const vehicleTypeMap = {
+      'bike': 'bike',
+      'ev_bike': 'bike',
+      'auto': 'auto',
+      'cab': 'car',
+      'car': 'car',
+      'van': 'van'
+    };
+    const fuelTypeMap = {
+      'petrol': 'petrol',
+      'electric': 'ev',
+      'ev': 'ev',
+      'cng': 'cng',
+      'diesel': 'diesel'
+    };
+
+    // Find rider by ID or email or contact
+    let rider = null;
+    if (riderId) {
+      rider = await Rider.findByPk(riderId);
+    }
+    if (!rider && email) {
+      rider = await Rider.findOne({ where: { email: email.toLowerCase().trim() } });
+    }
+    if (!rider && contact) {
+      rider = await Rider.findOne({ where: { contact: String(contact).trim() } });
+    }
+
+    if (!rider) {
+      // If still not found, create new
+      rider = await Rider.create({
+        name: name ? String(name).trim() : 'Captain',
+        email: email ? email.toLowerCase().trim() : null,
+        contact: contact ? String(contact).trim() : null,
+        vehicle_type: vehicleTypeMap[vehicle_type] || 'bike',
+        vehicle_model: vehicle_model || '',
+        vehicle_number: vehicle_number ? vehicle_number.toUpperCase() : '',
+        fuel_type: fuelTypeMap[fuel_type] || 'petrol',
+        kyc_docs: parsedKycDocs,
+        role: 'captain',
+        status: 'offline',
+        is_verified: false,
+        join_date: new Date().toISOString().split('T')[0],
+        current_lat: 12.9716,
+        current_lng: 77.5946
+      });
+    } else {
+      // Update existing record
+      if (name) rider.name = String(name).trim();
+      if (contact) rider.contact = String(contact).trim();
+      if (email) rider.email = email.toLowerCase().trim();
+      if (vehicle_type) rider.vehicle_type = vehicleTypeMap[vehicle_type] || rider.vehicle_type || 'bike';
+      if (vehicle_model) rider.vehicle_model = vehicle_model;
+      if (vehicle_number) rider.vehicle_number = vehicle_number.toUpperCase();
+      if (fuel_type) rider.fuel_type = fuelTypeMap[fuel_type] || rider.fuel_type || 'petrol';
+      rider.kyc_docs = parsedKycDocs;
+      rider.is_verified = false;
+      rider.status = 'offline';
+      await rider.save();
+    }
+
+    const riderData = rider.toJSON();
+    delete riderData.password;
+
+    return res.status(200).json({
+      success: true,
+      message: 'KYC documents and vehicle details submitted for review successfully',
+      data: riderData,
+      zipUrl: zipRelativeUrl
+    });
+  } catch (error) {
+    console.error('Error in uploadKycZip:', error);
+    return res.status(500).json({ success: false, message: 'Failed to process KYC upload: ' + error.message });
+  }
+}
+
 module.exports = {
   createRider,
   createRiderHandler,
@@ -953,6 +1112,8 @@ module.exports = {
   triggerRiderSos,
   sendRiderEmailOtp,
   verifyRiderEmailOtp,
-  getRiderAuthStatus
+  getRiderAuthStatus,
+  checkRiderPhone,
+  uploadKycZip
 };
 

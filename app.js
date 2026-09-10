@@ -174,6 +174,17 @@ app.use('/ota', (req, res, next) => {
   next();
 }, express.static(otaPublicDir));
 
+// ✅ Public uploads static route (serves KYC document archives and assets)
+const uploadsPublicDir = path.join(__dirname, 'public', 'uploads');
+const kycZipsDir = path.join(uploadsPublicDir, 'kyc_zips');
+if (!fs.existsSync(kycZipsDir)) {
+  fs.mkdirSync(kycZipsDir, { recursive: true });
+}
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+}, express.static(uploadsPublicDir));
+
 app.get(['/ota', '/ota/'], (req, res) => {
   res.json({
     success: true,
