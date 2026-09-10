@@ -135,17 +135,40 @@ const processNextRider = async (rideId, io) => {
     const rider = state.riders[state.index % state.riders.length];
     console.log(`📡 Offering ride ${rideId} to rider ${rider.id} (Index: ${state.index})`);
 
+    // Fetch user details to provide rider with customer name/contact
+    let customerDetails = { name: 'Customer', phone: '' };
+    try {
+      if (ride.userId) {
+        const user = await User.findByPk(ride.userId, {
+          attributes: ['id', 'first_name', 'last_name', 'username', 'phone', 'email']
+        });
+        if (user) {
+          const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.username || 'Customer';
+          customerDetails = {
+            name: fullName,
+            phone: user.phone || ''
+          };
+        }
+      }
+    } catch (uErr) {
+      console.warn('Could not fetch user for ride request:', uErr.message);
+    }
+
     // 3. Emit Request via Socket.IO
     io.to(rider.socket_id).emit('ride:request', {
       rideId: ride.id,
       trip_details: ride.trip_details,
       service_details: ride.service_details,
-      fare: ride.service_details.price
+      fare: Number(ride.service_details?.price || ride.trip_details?.fare || 0),
+      customerName: customerDetails.name,
+      customerPhone: customerDetails.phone,
+      user_details: customerDetails,
+      otp: ride.otp || ''
     });
 
     // Also send FCM Push Notification if rider has an active fcm_token
     if (rider.fcm_token) {
-      const pickupAddress = ride.trip_details?.pickup?.address || 'nearby location';
+      const pickupAddress = ride.trip_details?.origin?.name || ride.trip_details?.pickup?.address || 'nearby location';
       const fareText = ride.service_details?.price ? `₹${ride.service_details.price}` : '';
       sendFcmNotification(
         rider.fcm_token,
@@ -163,11 +186,24 @@ const processNextRider = async (rideId, io) => {
     state.index++;
     state.timeout = setTimeout(() => {
       processNextRider(rideId, io);
-    }, 10000); // Wait 10 seconds for acceptance before trying next
+    }, 12000); // 12 seconds per driver offer
 
   } catch (error) {
     console.error('Error in processNextRider:', error);
     stopRiderSearch(rideId);
+  }
+};
+
+// Helper to skip immediately to next rider when a driver rejects
+const skipToNextRider = (rideId, io) => {
+  const state = activeSearches[rideId];
+  if (state) {
+    if (state.timeout) {
+      clearTimeout(state.timeout);
+      state.timeout = null;
+    }
+    console.log(`⏩ Driver rejected ride ${rideId}, advancing to next available captain...`);
+    processNextRider(rideId, io);
   }
 };
 
@@ -220,17 +256,21 @@ const startRiderSearch = async (rideId, io) => {
 
 async function createRideHandler(req, res) {
   try {
-    const { token, trip_details, service_details } = req.body;
+    const { token, trip_details, service_details, userId: bodyUserId } = req.body;
 
-    if (!token) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    // Support direct userId for testing/curl or decode JWT token
+    let userId = bodyUserId;
+    if (!userId && token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+        userId = decoded.id;
+      } catch (e) {
+        return res.status(401).json({ success: false, message: 'Invalid token' });
+      }
+    }
 
-    // Decode token to get User ID
-    let userId;
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
-      userId = decoded.id;
-    } catch (e) {
-      return res.status(401).json({ success: false, message: 'Invalid token' });
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized: valid token or userId is required' });
     }
 
     // Create Ride in DB
@@ -307,5 +347,6 @@ module.exports = {
   calculateRideEstimates,
   createRideHandler,
   stopRiderSearch, // Exported for use in socketHandler
+  skipToNextRider, // Exported for immediate round-robin on reject
   riderCancelRideHandler
 };

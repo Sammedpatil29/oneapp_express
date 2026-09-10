@@ -77,6 +77,8 @@ app.use(bodyParser.json({ limit: '50mb' }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+require('./models/riderTransactionModel');
+
 // ===== Sequelize sync =====
 sequelize
   .sync() // Removed { alter: true } to stop it from crashing on the User table
@@ -89,7 +91,8 @@ sequelize
         ADD COLUMN IF NOT EXISTS "status" JSONB DEFAULT '["active"]'::jsonb,
         ADD COLUMN IF NOT EXISTS "categories" JSONB DEFAULT '[]'::jsonb,
         ADD COLUMN IF NOT EXISTS "roles" JSONB DEFAULT '[]'::jsonb,
-        ADD COLUMN IF NOT EXISTS "routes" JSONB DEFAULT '[]'::jsonb;
+        ADD COLUMN IF NOT EXISTS "routes" JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS "ride_commission" JSONB DEFAULT '{"type":"fixed","value":3,"enabled":true,"min_fare":0}'::jsonb;
       `);
     } catch (alterErr) {
       console.log('⚠️ Metadata alter skipped (already updated or table missing)');
@@ -110,7 +113,8 @@ sequelize
       await sequelize.query(`
         ALTER TABLE "riders" 
         ADD COLUMN IF NOT EXISTS "email" VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS "fcm_token" VARCHAR(255);
+        ADD COLUMN IF NOT EXISTS "fcm_token" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "payout_account" JSONB DEFAULT '{}'::jsonb;
         ALTER TABLE "riders" ALTER COLUMN "password" DROP NOT NULL;
         ALTER TABLE "riders" ALTER COLUMN "name" DROP NOT NULL;
         ALTER TABLE "riders" ALTER COLUMN "name" SET DEFAULT '';

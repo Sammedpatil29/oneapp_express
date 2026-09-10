@@ -11,6 +11,7 @@ const {
   updateRiderStatus,
   getRiderEarnings,
   getRiderWallet,
+  payRiderCommission,
   withdrawRiderWallet,
   getRiderReferrals,
   getRiderRides,
@@ -23,7 +24,9 @@ const {
   uploadKycZip,
   updateRiderChecklist,
   unzipRiderKycDocs,
-  updateRiderFcmToken
+  updateRiderFcmToken,
+  getRideDetail,
+  getRiderActiveRide
 } = require('../controllers/riderController');
 
 const path = require('path');
@@ -81,14 +84,22 @@ router.post('/status', updateRiderStatus);
 // Earnings & Targets
 router.get('/earnings/:id', getRiderEarnings);
 
-// Wallet & Payouts
+// Wallet & Platform Commission Payment
 router.get('/wallet/:id', getRiderWallet);
+router.post('/wallet/pay-commission', payRiderCommission);
+router.post('/wallet/pay', payRiderCommission);
 router.post('/wallet/withdraw', withdrawRiderWallet);
 
 // Referrals & Rewards
 router.get('/referrals/:id', getRiderReferrals);
 
+// Active Ongoing Ride (for refresh and launch recovery)
+router.get('/active-ride/:id', getRiderActiveRide);
+router.get('/active-ride', getRiderActiveRide);
+
 // Ride / Order History
+router.get('/rides/detail/:rideId', getRideDetail);
+router.get('/ride/:rideId', getRideDetail);
 router.get('/rides/:id', getRiderRides);
 
 // Notifications Feed
