@@ -4,7 +4,8 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "test": "node app.js"
+    "test": "node app.js",
+    "fix:git": "powershell -ExecutionPolicy Bypass -File ../fix-git.ps1"
   },
   "author": "",
   "license": "ISC",
