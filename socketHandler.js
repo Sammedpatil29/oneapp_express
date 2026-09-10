@@ -63,16 +63,34 @@ module.exports = (io) => {
         if (data && data.riderId && data.status !== undefined) {
           const newStatus = data.status === 'onride' ? 'onride' : (data.status === true || data.status === 'online' ? 'online' : (data.status === false || data.status === 'offline' ? 'offline' : data.status));
           
+          let rider = null;
           if (isValidUUID(data.riderId)) {
-            await Rider.update({ status: newStatus }, { where: { id: data.riderId } });
-            console.log(`Rider ${data.riderId} status changed to ${newStatus}`);
+            rider = await Rider.findByPk(data.riderId);
           } else {
-            const rider = await Rider.findOne({ where: { contact: String(data.riderId) } }) || await Rider.findOne();
-            if (rider) {
-              rider.status = newStatus;
-              await rider.save();
-              console.log(`Rider ${rider.id} status changed to ${newStatus}`);
+            rider = await Rider.findOne({ where: { contact: String(data.riderId) } }) || await Rider.findOne();
+          }
+
+          if (rider) {
+            // Guard: Cannot go online if commission_due exceeds ₹50
+            if (newStatus === 'online' && Number(rider.commission_due || 0) > 50) {
+              console.warn(`🚫 Rider ${rider.id} blocked from going online: commission_due ₹${rider.commission_due} > 50`);
+              socket.emit('rider:status_rejected', {
+                reason: 'commission_limit_exceeded',
+                message: `Cannot go online. Outstanding commission is ₹${rider.commission_due}, which exceeds the ₹50 threshold. Please settle dues in Wallet.`,
+                commission_due: rider.commission_due
+              });
+              return;
             }
+
+            rider.status = newStatus;
+            if (data.lat && data.lng) {
+              rider.current_lat = data.lat;
+              rider.current_lng = data.lng;
+            }
+            await rider.save();
+            console.log(`Rider ${rider.id} status changed to ${newStatus}`);
+            socket.emit('rider:status', { status: newStatus, riderId: rider.id });
+            io.emit('riderUpdate', { status: newStatus, riderId: rider.id });
           }
         }
       } catch (error) {
@@ -252,10 +270,11 @@ module.exports = (io) => {
               // Record commission debit transaction in wallet ledger
               if (platformCommission > 0) {
                 try {
+                  const rateText = commissionType === 'percentage' ? `${commissionValue}%` : `₹${commissionValue}`;
                   await RiderTransaction.create({
                     riderId: rider.id,
                     txnId: `TXN${Date.now()}`,
-                    title: `Platform Commission - Ride #${ride.id}`,
+                    title: `Platform Commission (${rateText}) - Ride #${ride.id}`,
                     amount: platformCommission,
                     type: 'DEBIT',
                     category: 'commission',
@@ -266,6 +285,8 @@ module.exports = (io) => {
                       platform_commission: platformCommission,
                       commission_type: commissionType,
                       commission_rate: commissionValue,
+                      commission_value: commissionValue,
+                      ride_id: String(ride.id),
                       net_rider_earnings: netRiderEarnings,
                       payment_mode: 'CASH',
                       service_type: ride.service_details?.type || 'bike',
@@ -300,15 +321,22 @@ module.exports = (io) => {
       }
     });
 
-    // --- Rider Live Location Broadcast ---
+    // --- Rider Live Location Updates ---
     socket.on('rider:location', async (data) => {
+      // data: { riderId, lat, lng, heading }
       try {
-        if (data.riderId && data.lat && data.lng) {
+        if (data && data.riderId && data.lat && data.lng) {
+          const lat = parseFloat(data.lat);
+          const lng = parseFloat(data.lng);
+          const heading = parseFloat(data.heading || 0);
+
+          // Broadcast to riders and admin
           io.emit('rider:location_update', {
             riderId: data.riderId,
-            lat: data.lat,
-            lng: data.lng,
-            heading: data.heading || 0
+            lat,
+            lng,
+            heading,
+            timestamp: new Date().toISOString()
           });
         }
       } catch (err) {
@@ -317,13 +345,41 @@ module.exports = (io) => {
     });
 
     // --- Captain Emergency SOS ---
-    socket.on('captain:sos', (data) => {
+    socket.on('captain:sos', async (data) => {
       console.log('🚨 CAPTAIN SOS TRIGGERED VIA SOCKET:', data);
-      io.emit('admin:sos_alert', {
-        ...data,
-        timestamp: new Date().toISOString()
-      });
-      socket.emit('captain:sos_ack', { success: true });
+      try {
+        let rider = null;
+        if (data && data.riderId) {
+          if (isValidUUID(data.riderId)) {
+            rider = await Rider.findByPk(data.riderId);
+          } else {
+            rider = await Rider.findOne({ where: { contact: String(data.riderId) } }) || await Rider.findOne();
+          }
+        }
+
+        const lat = Number(data?.current_lat || data?.lat || rider?.current_lat || 0);
+        const lng = Number(data?.current_lng || data?.lng || rider?.current_lng || 0);
+
+        const payload = {
+          riderId: rider?.id || data?.riderId || 'UNKNOWN',
+          name: rider?.name || data?.name || 'Captain',
+          phone: rider?.contact || rider?.phone || data?.phone || 'N/A',
+          vehicle_number: rider?.vehicle_number || data?.vehicle_number || 'N/A',
+          vehicle_type: rider?.vehicle_type || data?.vehicle_type || 'bike',
+          lat: lat,
+          lng: lng,
+          rideId: data?.rideId || null,
+          google_maps_url: lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : null,
+          timestamp: new Date().toISOString()
+        };
+
+        io.emit('admin:sos_alert', payload);
+        socket.emit('captain:sos_ack', { success: true, alert: payload });
+        console.log(`🚨 Admin alerted with SOS from ${payload.name} at (${lat}, ${lng})`);
+      } catch (sosErr) {
+        console.error('Error broadcasting captain:sos:', sosErr);
+        io.emit('admin:sos_alert', { ...data, timestamp: new Date().toISOString() });
+      }
     });
 
     // --- User Cancels Ride ---

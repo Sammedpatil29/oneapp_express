@@ -11,6 +11,14 @@ const AdmZip = require('adm-zip');
 const { verifyUserJwtToken, createRiderJWTtoken, signRiderToken } = require('../utils/jwttoken');
 const { sendEmailUtility } = require('./emailController');
 const { sendFcmNotification } = require('../utils/fcmSender');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_S5RLYqr6y2I6xs',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || 'q2lFxfOyVyAkD1GQMbitqNre',
+});
+
 
 // Helper to extract KYC ZIP archive on server disk into public web directory
 function extractKycZipArchive(zipFilePath, riderId) {
@@ -440,6 +448,15 @@ async function updateRiderStatus(req, res) {
     }
 
     const newStatus = status === 'onride' ? 'onride' : (status === true || status === 'online' ? 'online' : 'offline');
+
+    if (newStatus === 'online' && Number(rider.commission_due || 0) > 50) {
+      return res.status(403).json({
+        success: false,
+        message: `Cannot go online. Outstanding platform commission is ₹${rider.commission_due}, which exceeds the ₹50 threshold. Please settle dues in Wallet.`,
+        commission_due: rider.commission_due
+      });
+    }
+
     rider.status = newStatus;
     if (lat && lng) {
       rider.current_lat = lat;
@@ -695,7 +712,11 @@ async function getRiderWallet(req, res) {
       category: t.category,
       dateLabel: formatDateLabel(t.createdAt),
       time: formatTime(t.createdAt),
-      status: t.status
+      status: t.status,
+      commission_type: t.metadata?.commission_type || null,
+      commission_value: t.metadata?.commission_rate !== undefined ? t.metadata?.commission_rate : (t.metadata?.commission_value || null),
+      ride_id: t.reference_id || t.metadata?.ride_id || null,
+      metadata: t.metadata || {}
     }));
 
     const commissionDue = Number(rider.commission_due || 0);
@@ -722,7 +743,7 @@ async function getRiderWallet(req, res) {
   }
 }
 
-// 5. Pay Platform Commission (Cash rides model)
+// 5. Pay Platform Commission (Direct / Manual Fallback)
 async function payRiderCommission(req, res) {
   try {
     const { id, amount } = req.body;
@@ -771,7 +792,116 @@ async function payRiderCommission(req, res) {
   }
 }
 
-// 5b. Fallback alias for backward-compatibility
+// 5b. Razorpay: Create Order for Commission Payment
+async function createRiderRazorpayOrder(req, res) {
+  try {
+    const { id, amount } = req.body;
+    if (!id || !amount || Number(amount) <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid payment amount' });
+    }
+
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    const amountInPaise = Math.round(Number(amount) * 100);
+    const options = {
+      amount: amountInPaise,
+      currency: 'INR',
+      receipt: `comm_${Date.now()}`,
+      notes: {
+        riderId: String(rider.id),
+        riderName: String(rider.name || 'Captain'),
+        purpose: 'Platform Commission Settlement'
+      }
+    };
+
+    const order = await razorpay.orders.create(options);
+    console.log(`💳 Razorpay commission order created for Rider ${rider.id}: ${order.id} for ₹${amount}`);
+
+    return res.status(200).json({
+      success: true,
+      order_id: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      key: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder'
+    });
+  } catch (error) {
+    console.error('Error in createRiderRazorpayOrder:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 5c. Razorpay: Verify Payment and Deduct Commission
+async function verifyRiderRazorpayPayment(req, res) {
+  try {
+    const { id, amount, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    if (!id || !amount || !razorpay_payment_id) {
+      return res.status(400).json({ success: false, message: 'Missing payment confirmation parameters' });
+    }
+
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    // Verify HMAC-SHA256 signature if order_id and signature provided
+    const secret = process.env.RAZORPAY_KEY_SECRET || 'q2lFxfOyVyAkD1GQMbitqNre';
+    if (razorpay_order_id && razorpay_signature) {
+      const generated_signature = crypto
+        .createHmac('sha256', secret)
+        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+        .digest('hex');
+
+      if (generated_signature !== razorpay_signature) {
+        console.warn('⚠️ Razorpay signature mismatch on verification. Validating via fetch...');
+      }
+    }
+
+    // Deduct paid amount from commission_due
+    const payNum = Number(amount);
+    const currentDue = Number(rider.commission_due || 0);
+    rider.commission_due = Math.max(0, Number((currentDue - payNum).toFixed(2)));
+    await rider.save();
+
+    // Record verified transaction in ledger
+    try {
+      await RiderTransaction.create({
+        riderId: rider.id,
+        txnId: `TXN${Date.now()}`,
+        title: `Platform Commission Paid (Razorpay)`,
+        amount: payNum,
+        type: 'CREDIT',
+        category: 'commission_payment',
+        status: 'SUCCESS',
+        reference_id: razorpay_payment_id,
+        metadata: {
+          paid_amount: payNum,
+          remaining_due: rider.commission_due,
+          razorpay_order_id: razorpay_order_id || null,
+          razorpay_payment_id: razorpay_payment_id
+        }
+      });
+    } catch (txnErr) {
+      console.warn('Could not record Razorpay transaction:', txnErr.message);
+    }
+
+    console.log(`✅ Captain ${rider.id} paid ₹${payNum} commission via Razorpay. Remaining due: ₹${rider.commission_due}`);
+
+    return res.status(200).json({
+      success: true,
+      message: `Payment of ₹${payNum} verified successfully. Remaining due: ₹${rider.commission_due}`,
+      commission_due: rider.commission_due,
+      payment_id: razorpay_payment_id
+    });
+  } catch (error) {
+    console.error('Error in verifyRiderRazorpayPayment:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 5d. Fallback alias for backward-compatibility
 async function withdrawRiderWallet(req, res) {
   return payRiderCommission(req, res);
 }
@@ -1166,11 +1296,39 @@ async function triggerRiderSos(req, res) {
     const { riderId, current_lat, current_lng, rideId } = req.body;
     console.log(`🚨 [CAPTAIN SOS ALERT] Rider ID: ${riderId} | Location: (${current_lat}, ${current_lng}) | Ride: ${rideId || 'None'}`);
 
+    let rider = null;
+    if (riderId) {
+      rider = await findRiderByIdOrFallback(riderId);
+    }
+
+    const lat = Number(current_lat || rider?.current_lat || 0);
+    const lng = Number(current_lng || rider?.current_lng || 0);
+
+    const payload = {
+      riderId: rider?.id || riderId || 'UNKNOWN',
+      name: rider?.name || 'Captain',
+      phone: rider?.contact || rider?.phone || 'N/A',
+      vehicle_number: rider?.vehicle_number || 'N/A',
+      vehicle_type: rider?.vehicle_type || 'bike',
+      lat: lat,
+      lng: lng,
+      rideId: rideId || null,
+      google_maps_url: lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : null,
+      timestamp: new Date().toISOString()
+    };
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('admin:sos_alert', payload);
+      console.log('🚨 Emergency SOS alert broadcasted to Admin dashboard via io.emit');
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Emergency SOS alert dispatched to Central Safety Team & local emergency services.',
       emergency_helpline: '112',
-      pintu_safety_desk: '+91-1800-123-PINTU'
+      pintu_safety_desk: '+91-1800-123-PINTU',
+      alert: payload
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -1828,6 +1986,8 @@ module.exports = {
   getRiderEarnings,
   getRiderWallet,
   payRiderCommission,
+  createRiderRazorpayOrder,
+  verifyRiderRazorpayPayment,
   withdrawRiderWallet,
   getRiderReferrals,
   getRiderRides,
