@@ -1,0 +1,49 @@
+{
+  "captain": {
+    "name": "Bharamu",
+    "phone": "9964610068",
+    "email": "sammed.patil29@gmail.com",
+    "city": "Bangalore",
+    "emergencyContact": ""
+  },
+  "vehicle": {
+    "type": "bike",
+    "model": "ola",
+    "number": "ka03kz9922",
+    "fuelType": "petrol",
+    "year": "2025"
+  },
+  "documents": {
+    "driving_license": {
+      "number": "ka03kz9922",
+      "filename": "ChatGPT Image Sep 9, 2026, 03_58_52 PM.png",
+      "status": "pending",
+      "uploaded": true
+    },
+    "vehicle_rc": {
+      "number": "43455456",
+      "filename": "ChatGPT Image Sep 9, 2026, 03_58_52 PM.png",
+      "status": "pending",
+      "uploaded": true
+    },
+    "vehicle_insurance": {
+      "number": "",
+      "valid_until": "31-12-2027",
+      "filename": "WhatsApp Image 2026-09-03 at 6.11.48 PM (1).jpeg",
+      "status": "pending",
+      "uploaded": true
+    },
+    "aadhaar_pan": {
+      "number": "954345654322",
+      "filename": "ChatGPT Image Aug 18, 2026, 08_42_15 AM.png",
+      "status": "pending",
+      "uploaded": true
+    },
+    "selfie": {
+      "filename": "ChatGPT Image Aug 25, 2026, 12_01_14 AM.png",
+      "status": "pending",
+      "uploaded": true
+    }
+  },
+  "submittedAt": "2026-09-10T12:45:54.319Z"
+}

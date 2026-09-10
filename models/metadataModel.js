@@ -37,6 +37,17 @@ const Metadata = sequelize.define('Metadata', {
     type: DataTypes.JSONB,
     allowNull: true,
     defaultValue: []
+  },
+  ride_commission: {
+    // Stores platform commission config for rides: { type: 'fixed' | 'percentage', value: number, enabled: boolean, min_fare: number }
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: {
+      type: 'fixed',
+      value: 3,
+      enabled: true,
+      min_fare: 0
+    }
   }
 }, {
   timestamps: true,

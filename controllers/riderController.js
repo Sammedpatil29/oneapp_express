@@ -1,12 +1,89 @@
 const Rider = require('../models/ridersModel');
 const Ride = require('../models/rideModel');
+const RiderTransaction = require('../models/riderTransactionModel');
+const User = require('../models/customUserModel');
 const { Op } = require('sequelize');
+const sequelize = require('../db');
+const fs = require('fs');
+const path = require('path');
+const AdmZip = require('adm-zip');
 
 const { verifyUserJwtToken, createRiderJWTtoken, signRiderToken } = require('../utils/jwttoken');
 const { sendEmailUtility } = require('./emailController');
+const { sendFcmNotification } = require('../utils/fcmSender');
+
+// Helper to extract KYC ZIP archive on server disk into public web directory
+function extractKycZipArchive(zipFilePath, riderId) {
+  try {
+    if (!fs.existsSync(zipFilePath)) {
+      console.warn('⚠️ extractKycZipArchive: file does not exist on disk:', zipFilePath);
+      return null;
+    }
+    const zip = new AdmZip(zipFilePath);
+    const extractDir = path.join(__dirname, '..', 'public', 'uploads', 'kyc_extracted', String(riderId));
+    if (!fs.existsSync(extractDir)) {
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+    
+    // Extract all entries
+    zip.extractAllTo(extractDir, true);
+    console.log(`📂 Extracted KYC ZIP archive to: ${extractDir}`);
+
+    const extractedFiles = {};
+    let metadataJson = null;
+
+    function walkDir(dir) {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walkDir(fullPath);
+        } else {
+          const lowerName = entry.name.toLowerCase();
+          const relativeWebUrl = `/uploads/kyc_extracted/${riderId}/${path.relative(extractDir, fullPath).replace(/\\/g, '/')}`;
+          
+          if (lowerName === 'metadata.json') {
+            try {
+              metadataJson = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+            } catch (e) {}
+          } else if (lowerName.startsWith('dl') || lowerName.includes('license')) {
+            extractedFiles.driving_license = relativeWebUrl;
+          } else if (lowerName.startsWith('rc') || lowerName.includes('registration')) {
+            extractedFiles.vehicle_rc = relativeWebUrl;
+          } else if (lowerName.startsWith('insurance') || lowerName.includes('policy')) {
+            extractedFiles.vehicle_insurance = relativeWebUrl;
+          } else if (lowerName.startsWith('adhaar') || lowerName.startsWith('aadhaar') || lowerName.includes('pan')) {
+            extractedFiles.aadhaar_pan = relativeWebUrl;
+          } else if (lowerName.startsWith('selfie') || lowerName.includes('face') || lowerName.includes('photo')) {
+            extractedFiles.live_selfie = relativeWebUrl;
+          }
+        }
+      }
+    }
+
+    walkDir(extractDir);
+    return { extractedFiles, metadataJson };
+  } catch (err) {
+    console.error('Error in extractKycZipArchive:', err);
+    return null;
+  }
+}
 
 // In-memory OTP storage for rider authentication
 const riderEmailOtpStore = new Map();
+
+// Standard 9-item KYC & onboarding checklist with pending / verified / not_verified states
+const DEFAULT_CHECKLIST = {
+  personal_details: 'pending',
+  vehicle_details: 'pending',
+  driving_license: 'pending',
+  vehicle_rc: 'pending',
+  vehicle_insurance: 'pending',
+  aadhaar_pan: 'pending',
+  live_selfie: 'pending',
+  background_verification: 'pending',
+  safety_activation: 'pending'
+};
 
 async function createRider(data) {
   try {
@@ -128,10 +205,30 @@ async function verifyRiderDocs(req, res) {
       return res.status(404).json({ error: 'Rider not found' });
     }
 
+    const { token, is_verified, message, riderId, checklist, verification_checklist } = req.body;
+
     // Perform update
-    rider.is_verified = is_verified;
+    if (typeof is_verified === 'boolean') {
+      rider.is_verified = is_verified;
+    }
     if (message !== undefined) {
-      rider.verification_message = message; // assumes field exists
+      rider.verification_message = message;
+    }
+    const incomingChecklist = checklist || verification_checklist;
+    if (incomingChecklist && typeof incomingChecklist === 'object') {
+      const currentDocs = rider.kyc_docs || {};
+      const currentChecklist = currentDocs.checklist || { ...DEFAULT_CHECKLIST };
+      currentDocs.checklist = {
+        ...currentChecklist,
+        ...incomingChecklist
+      };
+      rider.kyc_docs = { ...currentDocs };
+      rider.changed('kyc_docs', true);
+      // If all are verified, auto verify rider
+      const allVerified = Object.values(currentDocs.checklist).every(v => v === 'verified');
+      if (allVerified && typeof is_verified !== 'boolean') {
+        rider.is_verified = true;
+      }
     }
 
     await rider.save();
@@ -231,22 +328,68 @@ async function getRiderProfile(req, res) {
     }
 
     const data = rider.toJSON();
-    // Provide default rich metrics if not set
-    data.rating = data.rating || { average: 4.88, total_reviews: 142, five_star: 128 };
+
+    // Query real completed rides and cancelled rides for this rider
+    let completedCount = 0;
+    let cancelledCount = 0;
+    let totalDistanceKm = 0;
+
+    if (rider.id) {
+      try {
+        const completedRides = await Ride.findAll({
+          where: { riderId: rider.id, status: 'completed' },
+          attributes: ['id', 'trip_details', 'service_details']
+        });
+        completedCount = completedRides.length;
+
+        cancelledCount = await Ride.count({
+          where: { riderId: rider.id, status: 'cancelled' }
+        });
+
+        for (const cr of completedRides) {
+          const dist = parseFloat(cr.trip_details?.distance || cr.service_details?.distance || 0);
+          if (!isNaN(dist)) totalDistanceKm += dist;
+        }
+      } catch (countErr) {
+        console.warn('Could not count real rides for rider:', countErr.message);
+      }
+    }
+
+    const totalRidesAttempted = completedCount + cancelledCount;
+    const completionRate = totalRidesAttempted > 0 
+      ? Math.round((completedCount / totalRidesAttempted) * 100) 
+      : 100;
+    const cancellationRate = totalRidesAttempted > 0 
+      ? Math.round((cancelledCount / totalRidesAttempted) * 100) 
+      : 0;
+    const acceptanceRate = 100 - cancellationRate;
+
+    // Determine real captain level based on completed rides
+    let captainLevel = 'Rookie Captain';
+    if (completedCount >= 200) captainLevel = 'Gold Captain';
+    else if (completedCount >= 50) captainLevel = 'Silver Captain';
+    else if (completedCount >= 10) captainLevel = 'Bronze Captain';
+
+    const hasReviews = (rider.rating?.total_reviews || 0) > 0;
+    data.rating = {
+      average: hasReviews ? (rider.rating.average || 0) : 0,
+      total_reviews: rider.rating?.total_reviews || 0,
+      five_star: rider.rating?.five_star || 0
+    };
     data.performance = {
-      acceptance_rate: '96%',
-      cancellation_rate: '2.1%',
-      completion_rate: '98%',
-      lifetime_rides: data.total_rides || 384,
-      total_distance_km: 1842
+      acceptance_rate: `${acceptanceRate}%`,
+      cancellation_rate: `${cancellationRate}%`,
+      completion_rate: `${completionRate}%`,
+      lifetime_rides: completedCount,
+      total_distance_km: Math.round(totalDistanceKm * 10) / 10
     };
-    data.captain_level = 'Gold Captain';
-    data.kyc_docs = data.kyc_docs || {
-      driving_license: { status: 'verified', doc_number: 'DL-1420180092144' },
-      vehicle_rc: { status: 'verified', doc_number: data.vehicle_number || 'MH-12-AB-1234' },
-      vehicle_insurance: { status: 'verified', valid_until: '2027-12-31' },
-      aadhaar_pan: { status: 'verified' }
-    };
+    data.captain_level = captainLevel;
+    data.kyc_docs = data.kyc_docs || {};
+    if (!data.kyc_docs.checklist) {
+      data.kyc_docs.checklist = { ...DEFAULT_CHECKLIST };
+    }
+    data.verification_checklist = data.kyc_docs.checklist;
+    data.payout_account = data.payout_account || {};
 
     return res.status(200).json({ success: true, data });
   } catch (error) {
@@ -296,7 +439,7 @@ async function updateRiderStatus(req, res) {
       return res.status(404).json({ success: false, message: 'Captain not found' });
     }
 
-    const newStatus = status === true || status === 'online' ? 'online' : 'offline';
+    const newStatus = status === 'onride' ? 'onride' : (status === true || status === 'online' ? 'online' : 'offline');
     rider.status = newStatus;
     if (lat && lng) {
       rider.current_lat = lat;
@@ -321,7 +464,6 @@ async function getRiderEarnings(req, res) {
   try {
     const { id } = req.params;
     const rider = await findRiderByIdOrFallback(id);
-    const balance = rider ? (Number(rider.earnings) || 0) : 0;
 
     // Calculate real stats from Ride database
     const startOfToday = new Date();
@@ -371,14 +513,43 @@ async function getRiderEarnings(req, res) {
       }
     }
 
-    const todayEarnings = todayRides.reduce((sum, r) => sum + (Number(r.fare) || 0), 0);
+    const getRideFare = (r) => Number(r.service_details?.price || r.trip_details?.fare || 0);
+
+    const todayEarnings = todayRides.reduce((sum, r) => sum + getRideFare(r), 0);
     const todayCount = todayRides.length;
 
-    const weekEarnings = weekRides.reduce((sum, r) => sum + (Number(r.fare) || 0), 0);
+    const weekEarnings = weekRides.reduce((sum, r) => sum + getRideFare(r), 0);
     const weekCount = weekRides.length;
 
-    const monthEarnings = monthRides.reduce((sum, r) => sum + (Number(r.fare) || 0), 0);
+    const monthEarnings = monthRides.reduce((sum, r) => sum + getRideFare(r), 0);
     const monthCount = monthRides.length;
+
+    // Dynamically populate weekly chart from actual rides
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayMap = {
+      Mon: { amount: 0, rides: 0 },
+      Tue: { amount: 0, rides: 0 },
+      Wed: { amount: 0, rides: 0 },
+      Thu: { amount: 0, rides: 0 },
+      Fri: { amount: 0, rides: 0 },
+      Sat: { amount: 0, rides: 0 },
+      Sun: { amount: 0, rides: 0 }
+    };
+
+    for (const r of weekRides) {
+      const d = new Date(r.updatedAt || r.createdAt);
+      const dayName = dayNames[d.getDay()];
+      if (dayMap[dayName]) {
+        dayMap[dayName].amount += getRideFare(r);
+        dayMap[dayName].rides += 1;
+      }
+    }
+
+    const chart_data = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => ({
+      day,
+      amount: dayMap[day].amount,
+      rides: dayMap[day].rides
+    }));
 
     const earningsData = {
       today: {
@@ -392,15 +563,7 @@ async function getRiderEarnings(req, res) {
       this_week: {
         total_earnings: weekEarnings,
         rides_completed: weekCount,
-        chart_data: [
-          { day: 'Mon', amount: 0, rides: 0 },
-          { day: 'Tue', amount: 0, rides: 0 },
-          { day: 'Wed', amount: 0, rides: 0 },
-          { day: 'Thu', amount: 0, rides: 0 },
-          { day: 'Fri', amount: 0, rides: 0 },
-          { day: 'Sat', amount: 0, rides: 0 },
-          { day: 'Sun', amount: 0, rides: 0 }
-        ]
+        chart_data
       },
       this_month: {
         total_earnings: monthEarnings,
@@ -441,111 +604,176 @@ async function getRiderWallet(req, res) {
   try {
     const { id } = req.params;
     const rider = await findRiderByIdOrFallback(id);
-    const balance = rider ? (rider.earnings || 1420) : 1420;
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    const availableBalance = Math.max(0, Number(rider.earnings) || 0);
+
+    // Calculate real stats from completed rides
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const startOfWeek = new Date();
+    const day = startOfWeek.getDay();
+    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
+    startOfWeek.setDate(diff);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const getFare = (r) => Number(r.service_details?.price || r.trip_details?.fare || 0);
+
+    let todayTotal = 0;
+    let weekTotal = 0;
+    let monthTotal = 0;
+    let cashToday = 0;
+
+    try {
+      const allRides = await Ride.findAll({
+        where: {
+          riderId: rider.id,
+          status: 'completed',
+          updatedAt: { [Op.gte]: startOfMonth }
+        },
+        attributes: ['id', 'trip_details', 'service_details', 'updatedAt']
+      });
+
+      for (const r of allRides) {
+        const fare = getFare(r);
+        const uTime = new Date(r.updatedAt).getTime();
+        monthTotal += fare;
+        if (uTime >= startOfWeek.getTime()) weekTotal += fare;
+        if (uTime >= startOfToday.getTime()) {
+          todayTotal += fare;
+          const payMode = String(r.trip_details?.paymentMode || r.service_details?.paymentMode || '').toUpperCase();
+          if (payMode === 'CASH') cashToday += fare;
+        }
+      }
+    } catch (rErr) {
+      console.warn('Could not aggregate rides for wallet:', rErr.message);
+    }
+
+    // Fetch real transactions from RiderTransaction ledger
+    let dbTransactions = [];
+    try {
+      dbTransactions = await RiderTransaction.findAll({
+        where: { riderId: rider.id },
+        order: [['createdAt', 'DESC']],
+        limit: 30
+      });
+    } catch (txnErr) {
+      console.warn('Could not query RiderTransaction ledger:', txnErr.message);
+    }
+
+    const formatTime = (date) => {
+      return new Date(date).toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    };
+
+    const formatDateLabel = (date) => {
+      const d = new Date(date);
+      const now = new Date();
+      if (d.toDateString() === now.toDateString()) return 'Today';
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+
+    const formattedTransactions = dbTransactions.map(t => ({
+      id: t.txnId || t.id,
+      txnId: t.txnId || t.id,
+      title: t.title,
+      amount: t.amount,
+      type: t.type,
+      category: t.category,
+      dateLabel: formatDateLabel(t.createdAt),
+      time: formatTime(t.createdAt),
+      status: t.status
+    }));
+
+    const commissionDue = Number(rider.commission_due || 0);
 
     const walletData = {
       balance: {
-        available: balance,
-        pending_settlement: 350,
-        cash_collected_in_hand: 280
+        commission_due: commissionDue,
+        available: commissionDue,
+        cash_collected_in_hand: cashToday,
+        total_cash_collected: monthTotal
       },
       stats: {
-        today: 580,
-        thisWeek: 3840,
-        thisMonth: 16450
+        today: todayTotal,
+        thisWeek: weekTotal,
+        thisMonth: monthTotal
       },
-      payout_account: {
-        upi_id: 'captain@okhdfcbank',
-        bank_name: 'HDFC Bank',
-        account_number: '•••• •••• 4912',
-        is_verified: true
-      },
-      transactions: [
-        {
-          id: 'txn-101',
-          title: 'Trip Fare - Pintu Ride #8491',
-          amount: 85,
-          type: 'CREDIT',
-          category: 'ride_fare',
-          dateLabel: 'Today',
-          time: '04:30 PM',
-          status: 'SUCCESS'
-        },
-        {
-          id: 'txn-102',
-          title: 'Peak Hour Incentive Bonus',
-          amount: 60,
-          type: 'CREDIT',
-          category: 'incentive',
-          dateLabel: 'Today',
-          time: '02:15 PM',
-          status: 'SUCCESS'
-        },
-        {
-          id: 'txn-103',
-          title: 'Instant Payout to UPI',
-          amount: 1000,
-          type: 'DEBIT',
-          category: 'withdrawal',
-          dateLabel: 'Yesterday',
-          time: '08:45 PM',
-          status: 'SUCCESS'
-        },
-        {
-          id: 'txn-104',
-          title: 'Trip Fare - Pintu Ride #8472',
-          amount: 120,
-          type: 'CREDIT',
-          category: 'ride_fare',
-          dateLabel: 'Yesterday',
-          time: '06:10 PM',
-          status: 'SUCCESS'
-        },
-        {
-          id: 'txn-105',
-          title: 'Friend Referral Bonus (Rider Rahul)',
-          amount: 500,
-          type: 'CREDIT',
-          category: 'referral',
-          dateLabel: '04 Sep 2026',
-          time: '11:00 AM',
-          status: 'SUCCESS'
-        }
-      ]
+      transactions: formattedTransactions
     };
 
     return res.status(200).json({ success: true, data: walletData });
   } catch (error) {
+    console.error('Error in getRiderWallet:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 }
 
-// 5. Request Wallet Withdrawal / Payout
-async function withdrawRiderWallet(req, res) {
+// 5. Pay Platform Commission (Cash rides model)
+async function payRiderCommission(req, res) {
   try {
-    const { id, amount, upi_id } = req.body;
-    if (!id || !amount || amount <= 0) {
-      return res.status(400).json({ success: false, message: 'Invalid withdrawal amount' });
+    const { id, amount } = req.body;
+    if (!id || !amount || Number(amount) <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid payment amount' });
     }
 
     const rider = await findRiderByIdOrFallback(id);
-    if (rider && rider.earnings < amount) {
-      return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
     }
 
-    if (rider) {
-      rider.earnings = Math.max(0, rider.earnings - amount);
-      await rider.save();
+    const payNum = Number(amount);
+    const currentDue = Number(rider.commission_due || 0);
+    rider.commission_due = Math.max(0, Number((currentDue - payNum).toFixed(2)));
+    await rider.save();
+
+    const refId = `COMM-PAY-${Date.now().toString(36).toUpperCase()}`;
+
+    try {
+      await RiderTransaction.create({
+        riderId: rider.id,
+        txnId: `TXN${Date.now()}`,
+        title: `Platform Commission Paid`,
+        amount: payNum,
+        type: 'CREDIT',
+        category: 'commission_payment',
+        status: 'SUCCESS',
+        reference_id: refId,
+        metadata: { paid_amount: payNum, remaining_due: rider.commission_due }
+      });
+    } catch (txnErr) {
+      console.warn('Could not record commission payment transaction:', txnErr.message);
     }
 
     return res.status(200).json({
       success: true,
-      message: `₹${amount} withdrawal initiated to ${upi_id || 'linked UPI account'}. Payout will reflect in 15 minutes.`,
-      reference_id: `PAYOUT-${Date.now().toString(36).toUpperCase()}`
+      message: `Payment of ₹${payNum} received successfully. Remaining due: ₹${rider.commission_due}`,
+      reference_id: refId,
+      commission_due: rider.commission_due,
+      new_balance: rider.commission_due
     });
   } catch (error) {
+    console.error('Error in payRiderCommission:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
+}
+
+// 5b. Fallback alias for backward-compatibility
+async function withdrawRiderWallet(req, res) {
+  return payRiderCommission(req, res);
 }
 
 // 6. Get Referrals & Rewards
@@ -603,85 +831,296 @@ async function getRiderReferrals(req, res) {
 async function getRiderRides(req, res) {
   try {
     const { id } = req.params;
-    const { filter = 'all' } = req.query;
+    const { filter = 'all', limit = 50, offset = 0 } = req.query;
 
-    const rideList = [
-      {
-        id: 'RIDE-8491',
-        service_type: 'bike',
-        customer_name: 'Priya S.',
-        customer_phone: '98765•••••',
-        pickup_address: 'FC Road, Deccan Gymkhana, Pune',
-        drop_address: 'Kalyani Nagar, East Avenue, Pune',
-        distance_km: 8.4,
-        duration_mins: 22,
-        fare: 115,
-        tip: 20,
-        total_earning: 135,
-        payment_method: 'UPI',
-        status: 'completed',
-        created_at: 'Today, 04:30 PM',
-        customer_rating: 5
-      },
-      {
-        id: 'RIDE-8472',
-        service_type: 'bike',
-        customer_name: 'Siddharth M.',
-        customer_phone: '98221•••••',
-        pickup_address: 'Viman Nagar Near Phoenix Mall',
-        drop_address: 'Kharadi EON Free Zone Gate 2',
-        distance_km: 6.1,
-        duration_mins: 17,
-        fare: 85,
-        tip: 0,
-        total_earning: 85,
-        payment_method: 'CASH',
-        status: 'completed',
-        created_at: 'Yesterday, 06:10 PM',
-        customer_rating: 5
-      },
-      {
-        id: 'RIDE-8450',
-        service_type: 'parcel',
-        customer_name: 'TechMart Store',
-        customer_phone: '97654•••••',
-        pickup_address: 'Baner High Street',
-        drop_address: 'Aundh DP Road',
-        distance_km: 4.8,
-        duration_mins: 14,
-        fare: 65,
-        tip: 10,
-        total_earning: 75,
-        payment_method: 'ONLINE',
-        status: 'completed',
-        created_at: 'Yesterday, 02:40 PM',
-        customer_rating: 4
-      },
-      {
-        id: 'RIDE-8431',
-        service_type: 'bike',
-        customer_name: 'Rohan K.',
-        customer_phone: '99223•••••',
-        pickup_address: 'Kothrud Stand',
-        drop_address: 'Shivaji Nagar Station',
-        distance_km: 5.2,
-        duration_mins: 0,
-        fare: 0,
-        tip: 0,
-        total_earning: 0,
-        payment_method: 'CASH',
-        status: 'cancelled',
-        cancellation_reason: 'Customer took alternate ride',
-        created_at: '05 Sep 2026, 09:15 AM'
-      }
-    ];
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
 
-    let filtered = rideList;
-    if (filter === 'completed') filtered = rideList.filter(r => r.status === 'completed');
-    if (filter === 'cancelled') filtered = rideList.filter(r => r.status === 'cancelled');
+    const whereClause = {
+      riderId: rider.id
+    };
 
-    return res.status(200).json({ success: true, count: filtered.length, data: filtered });
+    if (filter === 'completed') {
+      whereClause.status = 'completed';
+    } else if (filter === 'cancelled') {
+      whereClause.status = 'cancelled';
+    } else if (filter !== 'all') {
+      whereClause.status = filter;
+    }
+
+    const rides = await Ride.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: User,
+          attributes: ['id', 'username', 'first_name', 'last_name', 'phone', 'email'],
+          required: false
+        }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0
+    });
+
+    const formatTime = (date) => {
+      return new Date(date).toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    };
+
+    const formatDateLabel = (date) => {
+      const d = new Date(date);
+      const now = new Date();
+      if (d.toDateString() === now.toDateString()) return 'Today';
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+
+    const formattedRides = rides.map(r => {
+      const fareAmount = Number(r.service_details?.price || r.trip_details?.fare || 0);
+      const originName = r.trip_details?.origin?.name || r.trip_details?.origin || 'Pickup Location';
+      const dropName = r.trip_details?.drop?.name || r.trip_details?.drop || 'Destination';
+      const distanceNum = parseFloat(r.trip_details?.distance || r.service_details?.distance || 0) || 0;
+      const durationNum = parseInt(r.trip_details?.duration || r.service_details?.duration || 0) || 0;
+      const paymentMode = (r.trip_details?.paymentMode || r.service_details?.paymentMode || 'CASH').toUpperCase();
+      const userFullName = [r.User?.first_name, r.User?.last_name].filter(Boolean).join(' ').trim();
+      const customerName = userFullName || r.User?.username || r.raider_details?.name || 'Customer';
+      const customerPhone = r.User?.phone || r.User?.email || r.raider_details?.contact || '—';
+
+      return {
+        id: r.id,
+        rideId: `RIDE-${r.id.toString().slice(-4).toUpperCase()}`,
+        service_type: r.service_details?.type || r.trip_details?.type || 'bike',
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        customer: {
+          name: customerName,
+          phone: customerPhone
+        },
+        pickup: {
+          address: originName
+        },
+        drop: {
+          address: dropName
+        },
+        pickup_address: originName,
+        drop_address: dropName,
+        from: originName,
+        to: dropName,
+        distance_km: distanceNum,
+        distance: `${distanceNum} km`,
+        duration_mins: durationNum,
+        duration: `${durationNum} mins`,
+        fare: {
+          rideFare: fareAmount,
+          incentive: 0,
+          total: fareAmount
+        },
+        amount: fareAmount,
+        total_earning: fareAmount,
+        payment_method: paymentMode,
+        paymentMode: paymentMode,
+        payment: {
+          mode: paymentMode
+        },
+        status: (r.status || 'completed').toUpperCase(),
+        dateLabel: formatDateLabel(r.createdAt),
+        date: r.createdAt,
+        time: formatTime(r.createdAt),
+        created_at: `${formatDateLabel(r.createdAt)}, ${formatTime(r.createdAt)}`,
+        otp: r.otp
+      };
+    });
+
+    // Summary calculation
+    const allCompletedRides = await Ride.findAll({
+      where: { riderId: rider.id, status: 'completed' },
+      attributes: ['id', 'service_details', 'trip_details']
+    });
+
+    const totalEarnings = allCompletedRides.reduce((acc, cr) => {
+      return acc + Number(cr.service_details?.price || cr.trip_details?.fare || 0);
+    }, 0);
+
+    const summary = {
+      totalRides: allCompletedRides.length,
+      totalEarnings,
+      rating: ((rider.rating?.total_reviews || 0) > 0 ? (rider.rating.average || 0) : 0)
+    };
+
+    return res.status(200).json({
+      success: true,
+      count: formattedRides.length,
+      data: formattedRides,
+      summary
+    });
   } catch (error) {
+    console.error('Error in getRiderRides:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 7b. Get Single Ride Detail
+async function getRideDetail(req, res) {
+  try {
+    const { rideId } = req.params;
+    if (!rideId) {
+      return res.status(400).json({ success: false, message: 'Ride ID is required' });
+    }
+
+    const ride = await Ride.findByPk(rideId, {
+      include: [
+        {
+          model: User,
+          attributes: ['id', 'username', 'first_name', 'last_name', 'phone', 'email'],
+          required: false
+        },
+        {
+          model: Rider,
+          attributes: ['id', 'name', 'contact', 'vehicle_number', 'vehicle_model', 'vehicle_type'],
+          required: false
+        }
+      ]
+    });
+
+    if (!ride) {
+      return res.status(404).json({ success: false, message: 'Ride not found' });
+    }
+
+    const fareAmount = Number(ride.service_details?.price || ride.trip_details?.fare || 0);
+    const originName = ride.trip_details?.origin?.name || ride.trip_details?.origin || 'Pickup Location';
+    const dropName = ride.trip_details?.drop?.name || ride.trip_details?.drop || 'Destination';
+    const distanceNum = parseFloat(ride.trip_details?.distance || ride.service_details?.distance || 0) || 0;
+    const durationNum = parseInt(ride.trip_details?.duration || ride.service_details?.duration || 0) || 0;
+    const paymentMode = (ride.trip_details?.paymentMode || ride.service_details?.paymentMode || 'CASH').toUpperCase();
+    const userFullName = [ride.User?.first_name, ride.User?.last_name].filter(Boolean).join(' ').trim();
+    const customerName = userFullName || ride.User?.username || ride.raider_details?.name || 'Customer';
+    const customerPhone = ride.User?.phone || ride.User?.email || ride.raider_details?.contact || '—';
+
+    const formatTime = (date) => new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    const rideData = {
+      id: ride.id,
+      rideId: `RIDE-${ride.id.toString().slice(-4).toUpperCase()}`,
+      status: (ride.status || 'COMPLETED').toUpperCase(),
+      pickup: { address: originName },
+      drop: { address: dropName },
+      date: ride.createdAt,
+      time: formatTime(ride.createdAt),
+      distance: `${distanceNum} km`,
+      duration: `${durationNum} mins`,
+      fare: {
+        rideFare: fareAmount,
+        incentive: 0,
+        total: fareAmount
+      },
+      customer: {
+        name: customerName,
+        phone: customerPhone
+      },
+      payment: {
+        mode: paymentMode
+      },
+      service_type: ride.service_details?.type || 'bike',
+      otp: ride.otp,
+      rider: ride.Rider ? {
+        id: ride.Rider.id,
+        name: ride.Rider.name,
+        contact: ride.Rider.contact,
+        vehicle_number: ride.Rider.vehicle_number,
+        vehicle_model: ride.Rider.vehicle_model
+      } : null
+    };
+
+    return res.status(200).json({ success: true, data: { ride: rideData } });
+  } catch (error) {
+    console.error('Error in getRideDetail:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 7c. Get Rider's Current Active Ongoing Ride (for app restart / refresh recovery)
+async function getRiderActiveRide(req, res) {
+  try {
+    const { id } = req.params;
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(200).json({ success: true, hasActiveRide: false, ride: null });
+    }
+
+    const activeRide = await Ride.findOne({
+      where: {
+        riderId: rider.id,
+        status: { [Op.in]: ['accepted', 'arrived', 'in_progress'] }
+      },
+      include: [
+        {
+          model: User,
+          attributes: ['id', 'username', 'first_name', 'last_name', 'phone', 'email'],
+          required: false
+        }
+      ],
+      order: [['updatedAt', 'DESC']]
+    });
+
+    if (!activeRide) {
+      return res.status(200).json({ success: true, hasActiveRide: false, ride: null });
+    }
+
+    const fareAmount = Number(activeRide.service_details?.price || activeRide.trip_details?.fare || 0);
+    const originName = activeRide.trip_details?.origin?.name || activeRide.trip_details?.pickup?.address || activeRide.trip_details?.origin || 'Pickup Location';
+    const dropName = activeRide.trip_details?.drop?.name || activeRide.trip_details?.drop?.address || activeRide.trip_details?.drop || 'Destination';
+    const distanceNum = parseFloat(activeRide.trip_details?.distance || activeRide.service_details?.distance || 3.2) || 3.2;
+    const durationNum = parseInt(activeRide.trip_details?.duration || activeRide.service_details?.duration || 12) || 12;
+    const userFullName = [activeRide.User?.first_name, activeRide.User?.last_name].filter(Boolean).join(' ').trim();
+    const customerName = userFullName || activeRide.User?.username || 'Customer';
+    const customerPhone = activeRide.User?.phone || '';
+
+    const originLat = activeRide.trip_details?.origin?.lat || activeRide.trip_details?.origin?.coords?.lat || 12.9716;
+    const originLng = activeRide.trip_details?.origin?.lng || activeRide.trip_details?.origin?.coords?.lng || 77.5946;
+    const dropLat = activeRide.trip_details?.drop?.lat || activeRide.trip_details?.drop?.coords?.lat || (originLat + 0.02);
+    const dropLng = activeRide.trip_details?.drop?.lng || activeRide.trip_details?.drop?.coords?.lng || (originLng + 0.02);
+
+    const formattedRide = {
+      id: activeRide.id,
+      rideId: activeRide.id,
+      customerName: customerName,
+      customerPhone: customerPhone,
+      customerRating: 4.9,
+      serviceType: (activeRide.service_details?.type || 'BIKE TAXI').toUpperCase(),
+      origin: {
+        name: originName,
+        lat: originLat,
+        lng: originLng
+      },
+      destination: {
+        name: dropName,
+        lat: dropLat,
+        lng: dropLng
+      },
+      fare: fareAmount,
+      distance: distanceNum,
+      duration: durationNum,
+      status: activeRide.status,
+      otp: activeRide.otp || '1234',
+      paymentMode: 'CASH',
+      trip_details: activeRide.trip_details,
+      service_details: activeRide.service_details
+    };
+
+    return res.status(200).json({
+      success: true,
+      hasActiveRide: true,
+      ride: formattedRide
+    });
+  } catch (error) {
+    console.error('Get Active Ride Error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 }
@@ -821,10 +1260,14 @@ async function verifyRiderEmailOtp(req, res) {
       rider = await Rider.create({
         email: cleanEmail,
         name: "", // Empty string avoids NOT NULL constraint while letting user provide their real legal name
+        vehicle_number: "", // Avoids NOT NULL constraint on initial signup before onboarding
+        vehicle_model: "",
+        vehicle_type: "bike",
+        fuel_type: "petrol",
         role: 'captain',
         status: 'offline',
         is_verified: false,
-        kyc_docs: null,
+        kyc_docs: { checklist: { ...DEFAULT_CHECKLIST } },
         join_date: new Date().toISOString().split('T')[0],
         current_lat: 12.9716,
         current_lng: 77.5946
@@ -835,7 +1278,8 @@ async function verifyRiderEmailOtp(req, res) {
     // Generate JWT authentication token
     const tokenData = signRiderToken(rider);
 
-    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && Object.keys(rider.kyc_docs).length > 0);
+    const checklist = (rider.kyc_docs && rider.kyc_docs.checklist) ? rider.kyc_docs.checklist : { ...DEFAULT_CHECKLIST };
+    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && (rider.kyc_docs.zip_archive || Object.keys(rider.kyc_docs).filter(k => k !== 'checklist').length > 0));
 
     let verification_status = 'pending_details';
     if (rider.is_verified) {
@@ -852,6 +1296,8 @@ async function verifyRiderEmailOtp(req, res) {
       is_verified: rider.is_verified || false,
       has_submitted_docs: hasSubmittedDocs,
       verification_status,
+      verification_checklist: checklist,
+      kyc_docs: rider.kyc_docs,
       rider: {
         id: rider.id,
         name: rider.name,
@@ -861,7 +1307,9 @@ async function verifyRiderEmailOtp(req, res) {
         is_verified: rider.is_verified || false,
         status: rider.status || 'offline',
         has_submitted_docs: hasSubmittedDocs,
-        verification_status
+        verification_status,
+        verification_checklist: checklist,
+        kyc_docs: rider.kyc_docs
       }
     });
   } catch (error) {
@@ -899,8 +1347,14 @@ async function getRiderAuthStatus(req, res) {
       });
     }
 
-    const rider = verified.user;
-    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && Object.keys(rider.kyc_docs).length > 0);
+    // Always fetch fresh data from database
+    const riderDb = await Rider.findByPk(verified.user.id, {
+      attributes: { exclude: ['password'] }
+    });
+    const rider = riderDb || verified.user;
+
+    const checklist = (rider.kyc_docs && rider.kyc_docs.checklist) ? rider.kyc_docs.checklist : { ...DEFAULT_CHECKLIST };
+    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && (rider.kyc_docs.zip_archive || Object.keys(rider.kyc_docs).filter(k => k !== 'checklist').length > 0));
 
     let verification_status = 'pending_details';
     if (rider.is_verified) {
@@ -916,6 +1370,8 @@ async function getRiderAuthStatus(req, res) {
       status: rider.status || 'offline',
       has_submitted_docs: hasSubmittedDocs,
       verification_status,
+      verification_checklist: checklist,
+      kyc_docs: rider.kyc_docs,
       rider: {
         id: rider.id,
         name: rider.name,
@@ -925,7 +1381,9 @@ async function getRiderAuthStatus(req, res) {
         is_verified: rider.is_verified || false,
         status: rider.status || 'offline',
         has_submitted_docs: hasSubmittedDocs,
-        verification_status
+        verification_status,
+        verification_checklist: checklist,
+        kyc_docs: rider.kyc_docs
       }
     });
   } catch (error) {
@@ -1047,6 +1505,7 @@ async function uploadKycZip(req, res) {
 
     if (!rider) {
       // If still not found, create new
+      parsedKycDocs.checklist = parsedKycDocs.checklist || { ...DEFAULT_CHECKLIST };
       rider = await Rider.create({
         name: name ? String(name).trim() : 'Captain',
         email: email ? email.toLowerCase().trim() : null,
@@ -1072,11 +1531,30 @@ async function uploadKycZip(req, res) {
       if (vehicle_model) rider.vehicle_model = vehicle_model;
       if (vehicle_number) rider.vehicle_number = vehicle_number.toUpperCase();
       if (fuel_type) rider.fuel_type = fuelTypeMap[fuel_type] || rider.fuel_type || 'petrol';
-      rider.kyc_docs = parsedKycDocs;
-      rider.is_verified = false;
-      rider.status = 'offline';
-      await rider.save();
+      
+      const existingChecklist = (rider.kyc_docs && rider.kyc_docs.checklist) ? rider.kyc_docs.checklist : { ...DEFAULT_CHECKLIST };
+      parsedKycDocs.checklist = parsedKycDocs.checklist || existingChecklist;
     }
+
+    // Auto-extract ZIP files on disk for instant preview
+    const extractionResult = extractKycZipArchive(file.path, rider.id);
+    if (extractionResult) {
+      parsedKycDocs.extracted_files = extractionResult.extractedFiles;
+      if (extractionResult.metadataJson && extractionResult.metadataJson.documents) {
+        parsedKycDocs.meta_details = extractionResult.metadataJson.documents;
+      }
+    }
+
+    rider.kyc_docs = parsedKycDocs;
+    rider.changed('kyc_docs', true);
+    rider.is_verified = false;
+    rider.status = 'offline';
+    await rider.save();
+
+    await Rider.update(
+      { kyc_docs: parsedKycDocs, is_verified: false, status: 'offline' },
+      { where: { id: rider.id } }
+    );
 
     const riderData = rider.toJSON();
     delete riderData.password;
@@ -1093,6 +1571,250 @@ async function uploadKycZip(req, res) {
   }
 }
 
+// 15. Update Rider Verification Checklist (pending / verified / not_verified)
+async function updateRiderChecklist(req, res) {
+  try {
+    const { id } = req.params;
+    const { checklist, is_verified, verification_message } = req.body;
+
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    // Deep clone existing kyc_docs so no old object references remain
+    let currentDocs = {};
+    if (rider.kyc_docs) {
+      if (typeof rider.kyc_docs === 'string') {
+        try {
+          currentDocs = JSON.parse(rider.kyc_docs);
+        } catch (e) {
+          currentDocs = {};
+        }
+      } else if (typeof rider.kyc_docs === 'object') {
+        currentDocs = JSON.parse(JSON.stringify(rider.kyc_docs));
+      }
+    }
+
+    const currentChecklist = (currentDocs.checklist && typeof currentDocs.checklist === 'object')
+      ? { ...currentDocs.checklist }
+      : { ...DEFAULT_CHECKLIST };
+
+    if (checklist && typeof checklist === 'object') {
+      const validStatuses = ['pending', 'verified', 'not_verified'];
+      for (const [key, val] of Object.entries(checklist)) {
+        if (validStatuses.includes(val)) {
+          currentChecklist[key] = val;
+        }
+      }
+      currentDocs.checklist = currentChecklist;
+    }
+
+    let finalIsVerified = rider.is_verified;
+    if (typeof is_verified === 'boolean') {
+      finalIsVerified = is_verified;
+    } else if (checklist) {
+      const allVerified = Object.values(currentChecklist).every(val => val === 'verified');
+      if (allVerified) {
+        finalIsVerified = true;
+      }
+    }
+
+    const finalVerificationMessage = verification_message !== undefined ? verification_message : rider.verification_message;
+
+    // 1. Execute direct raw SQL UPDATE with explicit ::jsonb cast to bypass any Sequelize dirty-check / JSONB serialization quirks
+    const kycDocsJson = JSON.stringify(currentDocs);
+    try {
+      await sequelize.query(
+        `UPDATE "riders" 
+         SET "kyc_docs" = CAST(:kycDocsJson AS JSONB), 
+             "is_verified" = :is_verified, 
+             "verification_message" = :verification_message, 
+             "updatedAt" = NOW() 
+         WHERE "id" = :id`,
+        {
+          replacements: {
+            kycDocsJson,
+            is_verified: finalIsVerified,
+            verification_message: finalVerificationMessage || '',
+            id: rider.id
+          }
+        }
+      );
+      console.log(`✅ [updateRiderChecklist] Raw SQL JSONB updated successfully for rider ${rider.id}`);
+    } catch (sqlErr) {
+      console.warn('⚠️ Raw SQL with CAST AS JSONB failed, attempting fallback query:', sqlErr.message);
+      try {
+        await sequelize.query(
+          `UPDATE "riders" 
+           SET "kyc_docs" = :kycDocsJson, 
+               "is_verified" = :is_verified, 
+               "verification_message" = :verification_message, 
+               "updatedAt" = NOW() 
+           WHERE "id" = :id`,
+          {
+            replacements: {
+              kycDocsJson,
+              is_verified: finalIsVerified,
+              verification_message: finalVerificationMessage || '',
+              id: rider.id
+            }
+          }
+        );
+      } catch (fallbackSqlErr) {
+        console.error('Fallback raw SQL also failed:', fallbackSqlErr.message);
+      }
+    }
+
+    // 2. Also update via Sequelize model instance with changed() flag and save()
+    try {
+      rider.set('kyc_docs', currentDocs);
+      rider.changed('kyc_docs', true);
+      rider.is_verified = finalIsVerified;
+      rider.verification_message = finalVerificationMessage;
+      await rider.save();
+    } catch (saveErr) {
+      console.warn('⚠️ rider.save() warning:', saveErr.message);
+    }
+
+    // 3. Re-read fresh from DB to ensure response is 100% genuine database state
+    const freshRider = await Rider.findByPk(rider.id, { attributes: { exclude: ['password'] } });
+    console.log(`🔍 [updateRiderChecklist] Persisted DB checklist:`, freshRider?.kyc_docs?.checklist);
+    const riderData = freshRider ? freshRider.toJSON() : rider.toJSON();
+
+    // 4. Send FCM Push Notification to Captain if device token is registered
+    if (freshRider && freshRider.fcm_token) {
+      if (finalIsVerified) {
+        sendFcmNotification(
+          freshRider.fcm_token,
+          '🎉 Verification Approved!',
+          'Congratulations Captain! Your KYC documents have been verified and your account is active.',
+          { type: 'kyc_verified', status: 'verified' }
+        ).catch(err => console.error('FCM verification approved notify error:', err));
+      } else if (finalVerificationMessage) {
+        sendFcmNotification(
+          freshRider.fcm_token,
+          '📋 Verification Update',
+          finalVerificationMessage,
+          { type: 'kyc_update', status: 'pending' }
+        ).catch(err => console.error('FCM verification update notify error:', err));
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Verification checklist updated successfully',
+      verification_checklist: currentChecklist,
+      kyc_docs: currentDocs,
+      is_verified: finalIsVerified,
+      data: riderData
+    });
+  } catch (error) {
+    console.error('Error in updateRiderChecklist:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 16. Unzip Rider KYC docs on server disk and return extracted file URLs
+async function unzipRiderKycDocs(req, res) {
+  try {
+    const { id } = req.params;
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    const zipRelativeUrl = rider.kyc_docs?.zip_archive?.url;
+    if (!zipRelativeUrl) {
+      return res.status(400).json({ success: false, message: 'No KYC ZIP archive available for this Captain' });
+    }
+
+    const cleanRelative = zipRelativeUrl.startsWith('/') ? zipRelativeUrl.substring(1) : zipRelativeUrl;
+    const zipFullPath = path.join(__dirname, '..', 'public', cleanRelative);
+
+    const extractionResult = extractKycZipArchive(zipFullPath, rider.id);
+    if (!extractionResult) {
+      return res.status(500).json({ success: false, message: 'Could not extract ZIP file from server storage' });
+    }
+
+    const currentDocs = rider.kyc_docs && typeof rider.kyc_docs === 'object' ? { ...rider.kyc_docs } : {};
+    currentDocs.extracted_files = extractionResult.extractedFiles;
+    if (extractionResult.metadataJson && extractionResult.metadataJson.documents) {
+      currentDocs.meta_details = extractionResult.metadataJson.documents;
+    }
+
+    await Rider.update(
+      { kyc_docs: currentDocs },
+      { where: { id: rider.id } }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'KYC archive unzipped successfully',
+      extracted_files: currentDocs.extracted_files,
+      meta_details: currentDocs.meta_details,
+      kyc_docs: currentDocs
+    });
+  } catch (error) {
+    console.error('Error in unzipRiderKycDocs:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 17. Update Captain FCM Push Notification Device Token
+async function updateRiderFcmToken(req, res) {
+  try {
+    const authHeader = req.headers.authorization;
+    let riderId = null;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      const verified = verifyUserJwtToken(token);
+      if (verified && verified.id) {
+        riderId = verified.id;
+      }
+    }
+
+    // Fallback: accept riderId in body or query if token not present
+    if (!riderId) {
+      riderId = req.body.riderId || req.body.rider_id || req.query.riderId;
+    }
+
+    const { fcm_token } = req.body;
+    if (!fcm_token) {
+      return res.status(400).json({ success: false, message: 'FCM Token is required' });
+    }
+
+    const rider = await findRiderByIdOrFallback(riderId);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    const cleanToken = String(fcm_token).trim();
+    rider.fcm_token = cleanToken;
+    await rider.save();
+
+    // Direct SQL update to ensure immediate PostgreSQL write
+    await sequelize.query(
+      `UPDATE "riders" SET "fcm_token" = :fcm_token, "updatedAt" = NOW() WHERE "id" = :id`,
+      {
+        replacements: { fcm_token: cleanToken, id: rider.id },
+        type: sequelize.QueryTypes.UPDATE
+      }
+    );
+
+    console.log(`📱 FCM token updated for Captain ${rider.name || rider.id}: ${cleanToken.substring(0, 20)}...`);
+    return res.status(200).json({
+      success: true,
+      message: 'Captain FCM token updated successfully',
+      fcm_token: cleanToken
+    });
+  } catch (error) {
+    console.error('Error updating Captain FCM token:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 module.exports = {
   createRider,
   createRiderHandler,
@@ -1105,6 +1827,7 @@ module.exports = {
   updateRiderStatus,
   getRiderEarnings,
   getRiderWallet,
+  payRiderCommission,
   withdrawRiderWallet,
   getRiderReferrals,
   getRiderRides,
@@ -1114,6 +1837,11 @@ module.exports = {
   verifyRiderEmailOtp,
   getRiderAuthStatus,
   checkRiderPhone,
-  uploadKycZip
+  uploadKycZip,
+  updateRiderChecklist,
+  unzipRiderKycDocs,
+  updateRiderFcmToken,
+  getRideDetail,
+  getRiderActiveRide
 };
 

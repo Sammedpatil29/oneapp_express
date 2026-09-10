@@ -62,7 +62,7 @@ exports.getMetadata = async (req, res) => {
  */
 exports.updateMetadata = async (req, res) => {
   try {
-    const { polygon, locations, status, categories, roles, routes } = req.body;
+    const { polygon, locations, status, categories, roles, routes, ride_commission } = req.body;
     const updateData = {};
 
     const isArray = (val) => Array.isArray(val);
@@ -88,6 +88,12 @@ exports.updateMetadata = async (req, res) => {
     if (routes !== undefined) {
       if (!isArray(routes)) return res.status(400).json({ success: false, message: 'routes must be an array' });
       updateData.routes = routes;
+    }
+    if (ride_commission !== undefined) {
+      if (typeof ride_commission !== 'object' || ride_commission === null) {
+        return res.status(400).json({ success: false, message: 'ride_commission must be an object' });
+      }
+      updateData.ride_commission = ride_commission;
     }
 
     // Find existing record or create new one
