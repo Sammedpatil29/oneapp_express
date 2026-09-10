@@ -1,9 +1,9 @@
 {
-  "version": "0.0.4",
-  "url": "https://pintu-api.democompany.in.net/ota/bundles/partner-bundle-0.0.4.zip",
-  "sha256": "12b27653fb010b72d0fe5b7d35f51bfa4fcfb193710114cde0dde7acbd4d3e1e",
-  "size": 1975003,
-  "releaseId": "partner-rel-0.0.4-mtq0xp59",
+  "version": "0.0.5",
+  "url": "https://pintu-api.democompany.in.net/ota/bundles/partner-bundle-0.0.5.zip",
+  "sha256": "62c170f8956d1887d5ad2fce9601614ddb1c0b0fdda5fae088118cd119378239",
+  "size": 2030614,
+  "releaseId": "partner-rel-0.0.5-mtv3mtu4",
   "strategy": "zip",
   "forceImmediate": false
 }
