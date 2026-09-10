@@ -60,6 +60,7 @@ const Rider = sequelize.define("Rider", {
   vehicle_number: {
     type: DataTypes.STRING,
     allowNull: true,
+    defaultValue: "",
   },
 
   vehicle_type: {
@@ -77,6 +78,7 @@ const Rider = sequelize.define("Rider", {
   vehicle_model: {
     type: DataTypes.STRING,
     allowNull: true,
+    defaultValue: "",
   },
 
   kyc_docs: {
@@ -97,6 +99,11 @@ const Rider = sequelize.define("Rider", {
 
   // 🔹 Additional useful fields
   socket_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+
+  fcm_token: {
     type: DataTypes.STRING,
     allowNull: true,
   },

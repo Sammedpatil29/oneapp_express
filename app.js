@@ -109,7 +109,8 @@ sequelize
     try {
       await sequelize.query(`
         ALTER TABLE "riders" 
-        ADD COLUMN IF NOT EXISTS "email" VARCHAR(255);
+        ADD COLUMN IF NOT EXISTS "email" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "fcm_token" VARCHAR(255);
         ALTER TABLE "riders" ALTER COLUMN "password" DROP NOT NULL;
         ALTER TABLE "riders" ALTER COLUMN "name" DROP NOT NULL;
         ALTER TABLE "riders" ALTER COLUMN "name" SET DEFAULT '';

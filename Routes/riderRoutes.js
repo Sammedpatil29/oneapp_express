@@ -20,7 +20,10 @@ const {
   verifyRiderEmailOtp,
   getRiderAuthStatus,
   checkRiderPhone,
-  uploadKycZip
+  uploadKycZip,
+  updateRiderChecklist,
+  unzipRiderKycDocs,
+  updateRiderFcmToken
 } = require('../controllers/riderController');
 
 const path = require('path');
@@ -48,6 +51,7 @@ const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 // Route prefix: /api/rider
 
 router.get('/', getAllRiders);
+router.get('/all', getAllRiders);
 router.post('/create', createRiderHandler);
 router.post('/login', loginRider);
 router.post('/verify', verifyRiderDocs);
@@ -59,6 +63,14 @@ router.post('/verify-otp', verifyRiderEmailOtp);
 router.get('/auth/status', getRiderAuthStatus);
 router.get('/check-phone', checkRiderPhone);
 router.post('/upload-kyc-zip', upload.single('kycZip'), uploadKycZip);
+router.put('/checklist/:id', updateRiderChecklist);
+router.post('/checklist/:id', updateRiderChecklist);
+router.get('/unzip-kyc/:id', unzipRiderKycDocs);
+router.post('/unzip-kyc/:id', unzipRiderKycDocs);
+
+// FCM Push Notification Device Token
+router.patch('/fcm-token', updateRiderFcmToken);
+router.post('/fcm-token', updateRiderFcmToken);
 
 // Captain Profile & Status
 router.get('/profile/:id', getRiderProfile);

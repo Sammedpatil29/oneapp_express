@@ -1,12 +1,87 @@
 const Rider = require('../models/ridersModel');
 const Ride = require('../models/rideModel');
 const { Op } = require('sequelize');
+const sequelize = require('../db');
+const fs = require('fs');
+const path = require('path');
+const AdmZip = require('adm-zip');
 
 const { verifyUserJwtToken, createRiderJWTtoken, signRiderToken } = require('../utils/jwttoken');
 const { sendEmailUtility } = require('./emailController');
+const { sendFcmNotification } = require('../utils/fcmSender');
+
+// Helper to extract KYC ZIP archive on server disk into public web directory
+function extractKycZipArchive(zipFilePath, riderId) {
+  try {
+    if (!fs.existsSync(zipFilePath)) {
+      console.warn('⚠️ extractKycZipArchive: file does not exist on disk:', zipFilePath);
+      return null;
+    }
+    const zip = new AdmZip(zipFilePath);
+    const extractDir = path.join(__dirname, '..', 'public', 'uploads', 'kyc_extracted', String(riderId));
+    if (!fs.existsSync(extractDir)) {
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+    
+    // Extract all entries
+    zip.extractAllTo(extractDir, true);
+    console.log(`📂 Extracted KYC ZIP archive to: ${extractDir}`);
+
+    const extractedFiles = {};
+    let metadataJson = null;
+
+    function walkDir(dir) {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walkDir(fullPath);
+        } else {
+          const lowerName = entry.name.toLowerCase();
+          const relativeWebUrl = `/uploads/kyc_extracted/${riderId}/${path.relative(extractDir, fullPath).replace(/\\/g, '/')}`;
+          
+          if (lowerName === 'metadata.json') {
+            try {
+              metadataJson = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+            } catch (e) {}
+          } else if (lowerName.startsWith('dl') || lowerName.includes('license')) {
+            extractedFiles.driving_license = relativeWebUrl;
+          } else if (lowerName.startsWith('rc') || lowerName.includes('registration')) {
+            extractedFiles.vehicle_rc = relativeWebUrl;
+          } else if (lowerName.startsWith('insurance') || lowerName.includes('policy')) {
+            extractedFiles.vehicle_insurance = relativeWebUrl;
+          } else if (lowerName.startsWith('adhaar') || lowerName.startsWith('aadhaar') || lowerName.includes('pan')) {
+            extractedFiles.aadhaar_pan = relativeWebUrl;
+          } else if (lowerName.startsWith('selfie') || lowerName.includes('face') || lowerName.includes('photo')) {
+            extractedFiles.live_selfie = relativeWebUrl;
+          }
+        }
+      }
+    }
+
+    walkDir(extractDir);
+    return { extractedFiles, metadataJson };
+  } catch (err) {
+    console.error('Error in extractKycZipArchive:', err);
+    return null;
+  }
+}
 
 // In-memory OTP storage for rider authentication
 const riderEmailOtpStore = new Map();
+
+// Standard 9-item KYC & onboarding checklist with pending / verified / not_verified states
+const DEFAULT_CHECKLIST = {
+  personal_details: 'pending',
+  vehicle_details: 'pending',
+  driving_license: 'pending',
+  vehicle_rc: 'pending',
+  vehicle_insurance: 'pending',
+  aadhaar_pan: 'pending',
+  live_selfie: 'pending',
+  background_verification: 'pending',
+  safety_activation: 'pending'
+};
 
 async function createRider(data) {
   try {
@@ -128,10 +203,30 @@ async function verifyRiderDocs(req, res) {
       return res.status(404).json({ error: 'Rider not found' });
     }
 
+    const { token, is_verified, message, riderId, checklist, verification_checklist } = req.body;
+
     // Perform update
-    rider.is_verified = is_verified;
+    if (typeof is_verified === 'boolean') {
+      rider.is_verified = is_verified;
+    }
     if (message !== undefined) {
-      rider.verification_message = message; // assumes field exists
+      rider.verification_message = message;
+    }
+    const incomingChecklist = checklist || verification_checklist;
+    if (incomingChecklist && typeof incomingChecklist === 'object') {
+      const currentDocs = rider.kyc_docs || {};
+      const currentChecklist = currentDocs.checklist || { ...DEFAULT_CHECKLIST };
+      currentDocs.checklist = {
+        ...currentChecklist,
+        ...incomingChecklist
+      };
+      rider.kyc_docs = { ...currentDocs };
+      rider.changed('kyc_docs', true);
+      // If all are verified, auto verify rider
+      const allVerified = Object.values(currentDocs.checklist).every(v => v === 'verified');
+      if (allVerified && typeof is_verified !== 'boolean') {
+        rider.is_verified = true;
+      }
     }
 
     await rider.save();
@@ -247,6 +342,10 @@ async function getRiderProfile(req, res) {
       vehicle_insurance: { status: 'verified', valid_until: '2027-12-31' },
       aadhaar_pan: { status: 'verified' }
     };
+    if (!data.kyc_docs.checklist) {
+      data.kyc_docs.checklist = { ...DEFAULT_CHECKLIST };
+    }
+    data.verification_checklist = data.kyc_docs.checklist;
 
     return res.status(200).json({ success: true, data });
   } catch (error) {
@@ -821,10 +920,14 @@ async function verifyRiderEmailOtp(req, res) {
       rider = await Rider.create({
         email: cleanEmail,
         name: "", // Empty string avoids NOT NULL constraint while letting user provide their real legal name
+        vehicle_number: "", // Avoids NOT NULL constraint on initial signup before onboarding
+        vehicle_model: "",
+        vehicle_type: "bike",
+        fuel_type: "petrol",
         role: 'captain',
         status: 'offline',
         is_verified: false,
-        kyc_docs: null,
+        kyc_docs: { checklist: { ...DEFAULT_CHECKLIST } },
         join_date: new Date().toISOString().split('T')[0],
         current_lat: 12.9716,
         current_lng: 77.5946
@@ -835,7 +938,8 @@ async function verifyRiderEmailOtp(req, res) {
     // Generate JWT authentication token
     const tokenData = signRiderToken(rider);
 
-    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && Object.keys(rider.kyc_docs).length > 0);
+    const checklist = (rider.kyc_docs && rider.kyc_docs.checklist) ? rider.kyc_docs.checklist : { ...DEFAULT_CHECKLIST };
+    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && (rider.kyc_docs.zip_archive || Object.keys(rider.kyc_docs).filter(k => k !== 'checklist').length > 0));
 
     let verification_status = 'pending_details';
     if (rider.is_verified) {
@@ -852,6 +956,8 @@ async function verifyRiderEmailOtp(req, res) {
       is_verified: rider.is_verified || false,
       has_submitted_docs: hasSubmittedDocs,
       verification_status,
+      verification_checklist: checklist,
+      kyc_docs: rider.kyc_docs,
       rider: {
         id: rider.id,
         name: rider.name,
@@ -861,7 +967,9 @@ async function verifyRiderEmailOtp(req, res) {
         is_verified: rider.is_verified || false,
         status: rider.status || 'offline',
         has_submitted_docs: hasSubmittedDocs,
-        verification_status
+        verification_status,
+        verification_checklist: checklist,
+        kyc_docs: rider.kyc_docs
       }
     });
   } catch (error) {
@@ -899,8 +1007,14 @@ async function getRiderAuthStatus(req, res) {
       });
     }
 
-    const rider = verified.user;
-    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && Object.keys(rider.kyc_docs).length > 0);
+    // Always fetch fresh data from database
+    const riderDb = await Rider.findByPk(verified.user.id, {
+      attributes: { exclude: ['password'] }
+    });
+    const rider = riderDb || verified.user;
+
+    const checklist = (rider.kyc_docs && rider.kyc_docs.checklist) ? rider.kyc_docs.checklist : { ...DEFAULT_CHECKLIST };
+    const hasSubmittedDocs = !!(rider.kyc_docs && typeof rider.kyc_docs === 'object' && (rider.kyc_docs.zip_archive || Object.keys(rider.kyc_docs).filter(k => k !== 'checklist').length > 0));
 
     let verification_status = 'pending_details';
     if (rider.is_verified) {
@@ -916,6 +1030,8 @@ async function getRiderAuthStatus(req, res) {
       status: rider.status || 'offline',
       has_submitted_docs: hasSubmittedDocs,
       verification_status,
+      verification_checklist: checklist,
+      kyc_docs: rider.kyc_docs,
       rider: {
         id: rider.id,
         name: rider.name,
@@ -925,7 +1041,9 @@ async function getRiderAuthStatus(req, res) {
         is_verified: rider.is_verified || false,
         status: rider.status || 'offline',
         has_submitted_docs: hasSubmittedDocs,
-        verification_status
+        verification_status,
+        verification_checklist: checklist,
+        kyc_docs: rider.kyc_docs
       }
     });
   } catch (error) {
@@ -1047,6 +1165,7 @@ async function uploadKycZip(req, res) {
 
     if (!rider) {
       // If still not found, create new
+      parsedKycDocs.checklist = parsedKycDocs.checklist || { ...DEFAULT_CHECKLIST };
       rider = await Rider.create({
         name: name ? String(name).trim() : 'Captain',
         email: email ? email.toLowerCase().trim() : null,
@@ -1072,11 +1191,30 @@ async function uploadKycZip(req, res) {
       if (vehicle_model) rider.vehicle_model = vehicle_model;
       if (vehicle_number) rider.vehicle_number = vehicle_number.toUpperCase();
       if (fuel_type) rider.fuel_type = fuelTypeMap[fuel_type] || rider.fuel_type || 'petrol';
-      rider.kyc_docs = parsedKycDocs;
-      rider.is_verified = false;
-      rider.status = 'offline';
-      await rider.save();
+      
+      const existingChecklist = (rider.kyc_docs && rider.kyc_docs.checklist) ? rider.kyc_docs.checklist : { ...DEFAULT_CHECKLIST };
+      parsedKycDocs.checklist = parsedKycDocs.checklist || existingChecklist;
     }
+
+    // Auto-extract ZIP files on disk for instant preview
+    const extractionResult = extractKycZipArchive(file.path, rider.id);
+    if (extractionResult) {
+      parsedKycDocs.extracted_files = extractionResult.extractedFiles;
+      if (extractionResult.metadataJson && extractionResult.metadataJson.documents) {
+        parsedKycDocs.meta_details = extractionResult.metadataJson.documents;
+      }
+    }
+
+    rider.kyc_docs = parsedKycDocs;
+    rider.changed('kyc_docs', true);
+    rider.is_verified = false;
+    rider.status = 'offline';
+    await rider.save();
+
+    await Rider.update(
+      { kyc_docs: parsedKycDocs, is_verified: false, status: 'offline' },
+      { where: { id: rider.id } }
+    );
 
     const riderData = rider.toJSON();
     delete riderData.password;
@@ -1090,6 +1228,250 @@ async function uploadKycZip(req, res) {
   } catch (error) {
     console.error('Error in uploadKycZip:', error);
     return res.status(500).json({ success: false, message: 'Failed to process KYC upload: ' + error.message });
+  }
+}
+
+// 15. Update Rider Verification Checklist (pending / verified / not_verified)
+async function updateRiderChecklist(req, res) {
+  try {
+    const { id } = req.params;
+    const { checklist, is_verified, verification_message } = req.body;
+
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    // Deep clone existing kyc_docs so no old object references remain
+    let currentDocs = {};
+    if (rider.kyc_docs) {
+      if (typeof rider.kyc_docs === 'string') {
+        try {
+          currentDocs = JSON.parse(rider.kyc_docs);
+        } catch (e) {
+          currentDocs = {};
+        }
+      } else if (typeof rider.kyc_docs === 'object') {
+        currentDocs = JSON.parse(JSON.stringify(rider.kyc_docs));
+      }
+    }
+
+    const currentChecklist = (currentDocs.checklist && typeof currentDocs.checklist === 'object')
+      ? { ...currentDocs.checklist }
+      : { ...DEFAULT_CHECKLIST };
+
+    if (checklist && typeof checklist === 'object') {
+      const validStatuses = ['pending', 'verified', 'not_verified'];
+      for (const [key, val] of Object.entries(checklist)) {
+        if (validStatuses.includes(val)) {
+          currentChecklist[key] = val;
+        }
+      }
+      currentDocs.checklist = currentChecklist;
+    }
+
+    let finalIsVerified = rider.is_verified;
+    if (typeof is_verified === 'boolean') {
+      finalIsVerified = is_verified;
+    } else if (checklist) {
+      const allVerified = Object.values(currentChecklist).every(val => val === 'verified');
+      if (allVerified) {
+        finalIsVerified = true;
+      }
+    }
+
+    const finalVerificationMessage = verification_message !== undefined ? verification_message : rider.verification_message;
+
+    // 1. Execute direct raw SQL UPDATE with explicit ::jsonb cast to bypass any Sequelize dirty-check / JSONB serialization quirks
+    const kycDocsJson = JSON.stringify(currentDocs);
+    try {
+      await sequelize.query(
+        `UPDATE "riders" 
+         SET "kyc_docs" = CAST(:kycDocsJson AS JSONB), 
+             "is_verified" = :is_verified, 
+             "verification_message" = :verification_message, 
+             "updatedAt" = NOW() 
+         WHERE "id" = :id`,
+        {
+          replacements: {
+            kycDocsJson,
+            is_verified: finalIsVerified,
+            verification_message: finalVerificationMessage || '',
+            id: rider.id
+          }
+        }
+      );
+      console.log(`✅ [updateRiderChecklist] Raw SQL JSONB updated successfully for rider ${rider.id}`);
+    } catch (sqlErr) {
+      console.warn('⚠️ Raw SQL with CAST AS JSONB failed, attempting fallback query:', sqlErr.message);
+      try {
+        await sequelize.query(
+          `UPDATE "riders" 
+           SET "kyc_docs" = :kycDocsJson, 
+               "is_verified" = :is_verified, 
+               "verification_message" = :verification_message, 
+               "updatedAt" = NOW() 
+           WHERE "id" = :id`,
+          {
+            replacements: {
+              kycDocsJson,
+              is_verified: finalIsVerified,
+              verification_message: finalVerificationMessage || '',
+              id: rider.id
+            }
+          }
+        );
+      } catch (fallbackSqlErr) {
+        console.error('Fallback raw SQL also failed:', fallbackSqlErr.message);
+      }
+    }
+
+    // 2. Also update via Sequelize model instance with changed() flag and save()
+    try {
+      rider.set('kyc_docs', currentDocs);
+      rider.changed('kyc_docs', true);
+      rider.is_verified = finalIsVerified;
+      rider.verification_message = finalVerificationMessage;
+      await rider.save();
+    } catch (saveErr) {
+      console.warn('⚠️ rider.save() warning:', saveErr.message);
+    }
+
+    // 3. Re-read fresh from DB to ensure response is 100% genuine database state
+    const freshRider = await Rider.findByPk(rider.id, { attributes: { exclude: ['password'] } });
+    console.log(`🔍 [updateRiderChecklist] Persisted DB checklist:`, freshRider?.kyc_docs?.checklist);
+    const riderData = freshRider ? freshRider.toJSON() : rider.toJSON();
+
+    // 4. Send FCM Push Notification to Captain if device token is registered
+    if (freshRider && freshRider.fcm_token) {
+      if (finalIsVerified) {
+        sendFcmNotification(
+          freshRider.fcm_token,
+          '🎉 Verification Approved!',
+          'Congratulations Captain! Your KYC documents have been verified and your account is active.',
+          { type: 'kyc_verified', status: 'verified' }
+        ).catch(err => console.error('FCM verification approved notify error:', err));
+      } else if (finalVerificationMessage) {
+        sendFcmNotification(
+          freshRider.fcm_token,
+          '📋 Verification Update',
+          finalVerificationMessage,
+          { type: 'kyc_update', status: 'pending' }
+        ).catch(err => console.error('FCM verification update notify error:', err));
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Verification checklist updated successfully',
+      verification_checklist: currentChecklist,
+      kyc_docs: currentDocs,
+      is_verified: finalIsVerified,
+      data: riderData
+    });
+  } catch (error) {
+    console.error('Error in updateRiderChecklist:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 16. Unzip Rider KYC docs on server disk and return extracted file URLs
+async function unzipRiderKycDocs(req, res) {
+  try {
+    const { id } = req.params;
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    const zipRelativeUrl = rider.kyc_docs?.zip_archive?.url;
+    if (!zipRelativeUrl) {
+      return res.status(400).json({ success: false, message: 'No KYC ZIP archive available for this Captain' });
+    }
+
+    const cleanRelative = zipRelativeUrl.startsWith('/') ? zipRelativeUrl.substring(1) : zipRelativeUrl;
+    const zipFullPath = path.join(__dirname, '..', 'public', cleanRelative);
+
+    const extractionResult = extractKycZipArchive(zipFullPath, rider.id);
+    if (!extractionResult) {
+      return res.status(500).json({ success: false, message: 'Could not extract ZIP file from server storage' });
+    }
+
+    const currentDocs = rider.kyc_docs && typeof rider.kyc_docs === 'object' ? { ...rider.kyc_docs } : {};
+    currentDocs.extracted_files = extractionResult.extractedFiles;
+    if (extractionResult.metadataJson && extractionResult.metadataJson.documents) {
+      currentDocs.meta_details = extractionResult.metadataJson.documents;
+    }
+
+    await Rider.update(
+      { kyc_docs: currentDocs },
+      { where: { id: rider.id } }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'KYC archive unzipped successfully',
+      extracted_files: currentDocs.extracted_files,
+      meta_details: currentDocs.meta_details,
+      kyc_docs: currentDocs
+    });
+  } catch (error) {
+    console.error('Error in unzipRiderKycDocs:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// 17. Update Captain FCM Push Notification Device Token
+async function updateRiderFcmToken(req, res) {
+  try {
+    const authHeader = req.headers.authorization;
+    let riderId = null;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      const verified = verifyUserJwtToken(token);
+      if (verified && verified.id) {
+        riderId = verified.id;
+      }
+    }
+
+    // Fallback: accept riderId in body or query if token not present
+    if (!riderId) {
+      riderId = req.body.riderId || req.body.rider_id || req.query.riderId;
+    }
+
+    const { fcm_token } = req.body;
+    if (!fcm_token) {
+      return res.status(400).json({ success: false, message: 'FCM Token is required' });
+    }
+
+    const rider = await findRiderByIdOrFallback(riderId);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    const cleanToken = String(fcm_token).trim();
+    rider.fcm_token = cleanToken;
+    await rider.save();
+
+    // Direct SQL update to ensure immediate PostgreSQL write
+    await sequelize.query(
+      `UPDATE "riders" SET "fcm_token" = :fcm_token, "updatedAt" = NOW() WHERE "id" = :id`,
+      {
+        replacements: { fcm_token: cleanToken, id: rider.id },
+        type: sequelize.QueryTypes.UPDATE
+      }
+    );
+
+    console.log(`📱 FCM token updated for Captain ${rider.name || rider.id}: ${cleanToken.substring(0, 20)}...`);
+    return res.status(200).json({
+      success: true,
+      message: 'Captain FCM token updated successfully',
+      fcm_token: cleanToken
+    });
+  } catch (error) {
+    console.error('Error updating Captain FCM token:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 }
 
@@ -1114,6 +1496,9 @@ module.exports = {
   verifyRiderEmailOtp,
   getRiderAuthStatus,
   checkRiderPhone,
-  uploadKycZip
+  uploadKycZip,
+  updateRiderChecklist,
+  unzipRiderKycDocs,
+  updateRiderFcmToken
 };
 

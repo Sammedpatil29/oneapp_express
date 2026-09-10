@@ -4,6 +4,7 @@ const Rider = require('../models/ridersModel');
 const User = require('../models/customUserModel');
 const { Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
+const { sendFcmNotification } = require('../utils/fcmSender');
 
 // In-memory store for active search intervals: { rideId: intervalId }
 const activeSearches = {};
@@ -134,13 +135,29 @@ const processNextRider = async (rideId, io) => {
     const rider = state.riders[state.index % state.riders.length];
     console.log(`📡 Offering ride ${rideId} to rider ${rider.id} (Index: ${state.index})`);
 
-    // 3. Emit Request
+    // 3. Emit Request via Socket.IO
     io.to(rider.socket_id).emit('ride:request', {
       rideId: ride.id,
       trip_details: ride.trip_details,
       service_details: ride.service_details,
       fare: ride.service_details.price
     });
+
+    // Also send FCM Push Notification if rider has an active fcm_token
+    if (rider.fcm_token) {
+      const pickupAddress = ride.trip_details?.pickup?.address || 'nearby location';
+      const fareText = ride.service_details?.price ? `₹${ride.service_details.price}` : '';
+      sendFcmNotification(
+        rider.fcm_token,
+        `🚖 New Ride Request! ${fareText}`.trim(),
+        `Pickup at ${pickupAddress}. Tap to open and accept trip.`,
+        {
+          rideId: String(ride.id),
+          type: 'ride_request',
+          fare: String(ride.service_details?.price || '')
+        }
+      ).catch(err => console.error('Error sending ride request FCM to rider:', err));
+    }
 
     // 4. Schedule Next Iteration
     state.index++;
