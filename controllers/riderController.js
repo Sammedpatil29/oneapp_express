@@ -820,7 +820,7 @@ async function verifyRiderEmailOtp(req, res) {
       isNewUser = true;
       rider = await Rider.create({
         email: cleanEmail,
-        name: null, // User will provide their real legal name in onboarding
+        name: "", // Empty string avoids NOT NULL constraint while letting user provide their real legal name
         role: 'captain',
         status: 'offline',
         is_verified: false,
