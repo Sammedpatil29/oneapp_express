@@ -9,7 +9,19 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
 });
 
 sequelize.authenticate()
-  .then(() => console.log('Database connected successfully!'))
+  .then(async () => {
+    console.log('Database connected successfully!');
+    try {
+      await sequelize.query(`ALTER TABLE "riders" ADD COLUMN IF NOT EXISTS "commission_due" FLOAT DEFAULT 0;`);
+    } catch (e) {
+      console.warn('⚠️ Auto-patch commission_due notice:', e.message);
+    }
+    try {
+      await sequelize.query(`ALTER TYPE enum_riders_status ADD VALUE IF NOT EXISTS 'onride';`);
+    } catch (e) {
+      console.warn('⚠️ Auto-patch onride notice:', e.message);
+    }
+  })
   .catch((err) => console.error('Unable to connect to the database:', err));
 
 module.exports = sequelize;
