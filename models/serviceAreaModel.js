@@ -43,6 +43,16 @@ const ServiceArea = sequelize.define('ServiceArea', {
     allowNull: false,
     defaultValue: true
   },
+  isOffline: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
+  offlineMessage: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: ''
+  },
   description: {
     type: DataTypes.STRING,
     allowNull: true
