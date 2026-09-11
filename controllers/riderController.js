@@ -820,12 +820,45 @@ async function createRiderRazorpayOrder(req, res) {
     const order = await razorpay.orders.create(options);
     console.log(`💳 Razorpay commission order created for Rider ${rider.id}: ${order.id} for ₹${amount}`);
 
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
+    let paymentLinkUrl = null;
+    try {
+      const link = await razorpay.paymentLink.create({
+        amount: amountInPaise,
+        currency: 'INR',
+        accept_partial: false,
+        description: 'Pintu Platform Commission Settlement',
+        customer: {
+          name: rider.name || 'Captain',
+          contact: rider.phone || rider.contact || '9999999999'
+        },
+        notify: { sms: false, email: false },
+        reminder_enable: false,
+        notes: {
+          riderId: String(rider.id),
+          orderId: order.id,
+          purpose: 'Platform Commission Settlement'
+        },
+        callback_url: `${backendUrl}/api/rider/wallet/razorpay/callback?id=${rider.id}&amount=${amount}`,
+        callback_method: 'get'
+      });
+      paymentLinkUrl = link.short_url;
+      console.log(`🔗 Razorpay Payment Link created: ${paymentLinkUrl}`);
+    } catch (linkErr) {
+      console.warn('Payment link creation skipped:', linkErr.message);
+    }
+
+    const key = process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder';
+    const hostedCheckoutUrl = `${backendUrl}/api/rider/wallet/razorpay/checkout?order_id=${order.id}&amount=${amount}&id=${rider.id}&key=${key}`;
+
     return res.status(200).json({
       success: true,
       order_id: order.id,
       amount: order.amount,
       currency: order.currency,
-      key: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder'
+      key: key,
+      payment_link: paymentLinkUrl,
+      hosted_checkout_url: hostedCheckoutUrl
     });
   } catch (error) {
     console.error('Error in createRiderRazorpayOrder:', error);
@@ -901,7 +934,302 @@ async function verifyRiderRazorpayPayment(req, res) {
   }
 }
 
-// 5d. Fallback alias for backward-compatibility
+// 5d. Hosted Mobile Checkout Page (to guarantee UPI options like GPay, PhonePe, Paytm appear)
+async function getHostedRazorpayCheckout(req, res) {
+  try {
+    const { order_id, amount, id, key } = req.query;
+    if (!order_id || !amount || !id) {
+      return res.status(400).send('<h3>Invalid checkout parameters.</h3>');
+    }
+
+    const rider = await findRiderByIdOrFallback(id);
+    const riderName = rider ? (rider.name || 'Captain') : 'Captain';
+    const riderContact = rider ? (rider.phone || rider.contact || '') : '';
+    const amountInPaise = Math.round(Number(amount) * 100);
+    const razorpayKey = key || process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Pintu Captain - Platform Commission Payment</title>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      margin: 0;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 90vh;
+    }
+    .pay-card {
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 32px 24px;
+      box-shadow: 0 10px 30px -5px rgba(160, 0, 226, 0.12), 0 8px 10px -6px rgba(0,0,0,0.04);
+      max-width: 400px;
+      width: 100%;
+      box-sizing: border-box;
+      text-align: center;
+      border: 1px solid #f1f5f9;
+    }
+    .badge {
+      display: inline-block;
+      background: #f3e8ff;
+      color: #a000e2;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      padding: 6px 14px;
+      border-radius: 99px;
+      margin-bottom: 12px;
+    }
+    .amount {
+      font-size: 42px;
+      font-weight: 900;
+      color: #0f172a;
+      margin: 8px 0;
+    }
+    .desc {
+      color: #64748b;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .btn-pay {
+      background: #a000e2;
+      color: #ffffff;
+      border: none;
+      border-radius: 99px;
+      padding: 16px 24px;
+      font-size: 16px;
+      font-weight: 700;
+      width: 100%;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(160, 0, 226, 0.35);
+      transition: transform 0.15s ease;
+    }
+    .btn-pay:active { transform: scale(0.98); }
+    .upi-info {
+      margin-top: 20px;
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="pay-card">
+    <div class="badge">PLATFORM COMMISSION</div>
+    <div class="amount">₹${amount}</div>
+    <div class="desc">Settling commission for <strong>${riderName}</strong></div>
+    <button id="rzp-button" class="btn-pay">Pay with UPI / Cards / QR</button>
+    <div class="upi-info">
+      ⚡ Google Pay, PhonePe, Paytm, BHIM, Cards &amp; QR available
+    </div>
+  </div>
+  <script>
+    var options = {
+      key: "${razorpayKey}",
+      amount: ${amountInPaise},
+      currency: "INR",
+      name: "Pintu Captain",
+      description: "Platform Commission Settlement",
+      order_id: "${order_id}",
+      config: {
+        display: {
+          blocks: {
+            upi: {
+              name: "Pay via UPI",
+              instruments: [{ method: "upi", flows: ["intent", "qr"] }]
+            },
+            other: {
+              name: "Other Payment Modes",
+              instruments: [{ method: "card" }, { method: "netbanking" }, { method: "wallet" }]
+            }
+          },
+          sequence: ["block.upi", "block.other"],
+          preferences: { show_default_blocks: true }
+        }
+      },
+      method: { upi: true, card: true, netbanking: true, wallet: true },
+      upi: { flow: "intent" },
+      handler: function(response) {
+        window.location.href = "/api/rider/wallet/razorpay/callback?razorpay_payment_id=" + response.razorpay_payment_id + "&razorpay_order_id=" + (response.razorpay_order_id || "${order_id}") + "&razorpay_signature=" + (response.razorpay_signature || "") + "&id=${id}&amount=${amount}";
+      },
+      modal: {
+        ondismiss: function() {
+          console.log("Checkout closed");
+        }
+      },
+      prefill: {
+        name: "${riderName}",
+        contact: "${riderContact}"
+      },
+      theme: { color: "#a000e2" }
+    };
+    var rzp = new Razorpay(options);
+    document.getElementById('rzp-button').onclick = function() {
+      rzp.open();
+    };
+    window.onload = function() {
+      setTimeout(function() { rzp.open(); }, 350);
+    };
+  </script>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html');
+    return res.send(html);
+  } catch (err) {
+    console.error('Error rendering hosted Razorpay checkout:', err);
+    return res.status(500).send('Error loading checkout');
+  }
+}
+
+// 5e. Razorpay Payment Callback
+async function handleRiderRazorpayCallback(req, res) {
+  try {
+    const { razorpay_payment_id, razorpay_order_id, razorpay_signature, id, amount } = req.query;
+
+    if (id && amount && razorpay_payment_id) {
+      const rider = await findRiderByIdOrFallback(id);
+      if (rider) {
+        const payNum = Number(amount);
+        const currentDue = Number(rider.commission_due || 0);
+        rider.commission_due = Math.max(0, Number((currentDue - payNum).toFixed(2)));
+        await rider.save();
+
+        try {
+          await RiderTransaction.create({
+            riderId: rider.id,
+            txnId: `TXN${Date.now()}`,
+            title: 'Platform Commission Paid (Razorpay)',
+            amount: payNum,
+            type: 'CREDIT',
+            category: 'commission_payment',
+            status: 'SUCCESS',
+            reference_id: razorpay_payment_id,
+            metadata: {
+              paid_amount: payNum,
+              remaining_due: rider.commission_due,
+              razorpay_order_id: razorpay_order_id || null,
+              razorpay_payment_id: razorpay_payment_id
+            }
+          });
+        } catch (e) {}
+      }
+    }
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Successful</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; align-items: center; justify-content: center; height: 90vh; margin: 0; background: #f8fafc; text-align: center; }
+    .card { background: white; padding: 32px 24px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); max-width: 380px; width: 90%; }
+    .icon { font-size: 54px; margin-bottom: 12px; }
+    h2 { color: #16a34a; margin: 0 0 8px; }
+    p { color: #64748b; font-size: 14px; margin-bottom: 24px; }
+    .btn { background: #a000e2; color: white; border: none; padding: 14px 28px; border-radius: 99px; font-weight: bold; font-size: 15px; cursor: pointer; text-decoration: none; display: inline-block; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✅</div>
+    <h2>Payment Successful!</h2>
+    <p>Your platform commission has been settled. You can now return to the Pintu Partner app.</p>
+    <a href="oneapp://wallet" class="btn">Return to App</a>
+  </div>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html');
+    return res.send(html);
+  } catch (err) {
+    console.error('Error in handleRiderRazorpayCallback:', err);
+    return res.send('Payment completed. Please return to the app.');
+  }
+}
+
+// 5f. Check Order Status (Queries Razorpay API to see if order was paid)
+async function checkRiderRazorpayOrderStatus(req, res) {
+  try {
+    const { id, order_id } = req.body;
+    if (!id || !order_id) {
+      return res.status(400).json({ success: false, message: 'Missing parameters' });
+    }
+
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found' });
+    }
+
+    const payments = await razorpay.orders.fetchPayments(order_id);
+    const successfulPayment = (payments && payments.items) 
+      ? payments.items.find(p => p.status === 'captured' || p.status === 'authorized')
+      : null;
+
+    if (successfulPayment) {
+      const paidAmount = successfulPayment.amount / 100;
+      // Check if transaction already created
+      const existingTxn = await RiderTransaction.findOne({
+        where: { reference_id: successfulPayment.id }
+      });
+
+      if (!existingTxn) {
+        const currentDue = Number(rider.commission_due || 0);
+        rider.commission_due = Math.max(0, Number((currentDue - paidAmount).toFixed(2)));
+        await rider.save();
+
+        await RiderTransaction.create({
+          riderId: rider.id,
+          txnId: `TXN${Date.now()}`,
+          title: 'Platform Commission Paid (Razorpay)',
+          amount: paidAmount,
+          type: 'CREDIT',
+          category: 'commission_payment',
+          status: 'SUCCESS',
+          reference_id: successfulPayment.id,
+          metadata: {
+            paid_amount: paidAmount,
+            remaining_due: rider.commission_due,
+            razorpay_order_id: order_id,
+            razorpay_payment_id: successfulPayment.id,
+            method: successfulPayment.method
+          }
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        paid: true,
+        status: 'paid',
+        commission_due: rider.commission_due,
+        payment_id: successfulPayment.id,
+        method: successfulPayment.method
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      paid: false,
+      status: 'pending',
+      message: 'Payment not yet captured'
+    });
+  } catch (err) {
+    console.error('Error checking Razorpay order status:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// 5g. Fallback alias for backward-compatibility
 async function withdrawRiderWallet(req, res) {
   return payRiderCommission(req, res);
 }
@@ -2002,6 +2330,9 @@ module.exports = {
   unzipRiderKycDocs,
   updateRiderFcmToken,
   getRideDetail,
-  getRiderActiveRide
+  getRiderActiveRide,
+  getHostedRazorpayCheckout,
+  handleRiderRazorpayCallback,
+  checkRiderRazorpayOrderStatus
 };
 
