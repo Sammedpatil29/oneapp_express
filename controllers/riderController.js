@@ -820,7 +820,7 @@ async function createRiderRazorpayOrder(req, res) {
     const order = await razorpay.orders.create(options);
     console.log(`💳 Razorpay commission order created for Rider ${rider.id}: ${order.id} for ₹${amount}`);
 
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
+    const backendUrl = process.env.BACKEND_URL || (req.protocol + '://' + req.get('host'));
     let paymentLinkUrl = null;
     try {
       const link = await razorpay.paymentLink.create({
@@ -1060,7 +1060,7 @@ async function getHostedRazorpayCheckout(req, res) {
       method: { upi: true, card: true, netbanking: true, wallet: true },
       upi: { flow: "intent" },
       handler: function(response) {
-        window.location.href = "/api/rider/wallet/razorpay/callback?razorpay_payment_id=" + response.razorpay_payment_id + "&razorpay_order_id=" + (response.razorpay_order_id || "${order_id}") + "&razorpay_signature=" + (response.razorpay_signature || "") + "&id=${id}&amount=${amount}";
+        window.location.href = "pintu://payment-completed?razorpay_payment_id=" + response.razorpay_payment_id + "&razorpay_order_id=" + (response.razorpay_order_id || "${order_id}") + "&razorpay_signature=" + (response.razorpay_signature || "") + "&id=${id}&amount=${amount}";
       },
       modal: {
         ondismiss: function() {
@@ -1130,23 +1130,13 @@ async function handleRiderRazorpayCallback(req, res) {
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Payment Successful</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; align-items: center; justify-content: center; height: 90vh; margin: 0; background: #f8fafc; text-align: center; }
-    .card { background: white; padding: 32px 24px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); max-width: 380px; width: 90%; }
-    .icon { font-size: 54px; margin-bottom: 12px; }
-    h2 { color: #16a34a; margin: 0 0 8px; }
-    p { color: #64748b; font-size: 14px; margin-bottom: 24px; }
-    .btn { background: #a000e2; color: white; border: none; padding: 14px 28px; border-radius: 99px; font-weight: bold; font-size: 15px; cursor: pointer; text-decoration: none; display: inline-block; }
-  </style>
+  <title>Payment Completed</title>
+  <script>
+    window.location.href = "pintu://payment-completed?razorpay_payment_id=${razorpay_payment_id || ''}&razorpay_order_id=${razorpay_order_id || ''}&id=${id || ''}&amount=${amount || ''}";
+  </script>
 </head>
-<body>
-  <div class="card">
-    <div class="icon">✅</div>
-    <h2>Payment Successful!</h2>
-    <p>Your platform commission has been settled. You can now return to the Pintu Partner app.</p>
-    <a href="oneapp://wallet" class="btn">Return to App</a>
-  </div>
+<body style="background:#f8fafc;margin:0;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;text-align:center;">
+  <p style="color:#64748b;font-size:14px;">Payment completed. Returning to app...</p>
 </body>
 </html>`;
 
@@ -1158,12 +1148,12 @@ async function handleRiderRazorpayCallback(req, res) {
   }
 }
 
-// 5f. Check Order Status (Queries Razorpay API to see if order was paid)
+// 5f. Check Order Status (Queries DB Ledger & Razorpay API to see if order/payment was paid)
 async function checkRiderRazorpayOrderStatus(req, res) {
   try {
-    const { id, order_id } = req.body;
-    if (!id || !order_id) {
-      return res.status(400).json({ success: false, message: 'Missing parameters' });
+    const { id, order_id, payment_id, amount } = req.body;
+    if (!id || (!order_id && !payment_id)) {
+      return res.status(400).json({ success: false, message: 'Missing order_id or payment_id' });
     }
 
     const rider = await findRiderByIdOrFallback(id);
@@ -1171,49 +1161,115 @@ async function checkRiderRazorpayOrderStatus(req, res) {
       return res.status(404).json({ success: false, message: 'Captain not found' });
     }
 
-    const payments = await razorpay.orders.fetchPayments(order_id);
-    const successfulPayment = (payments && payments.items) 
-      ? payments.items.find(p => p.status === 'captured' || p.status === 'authorized')
-      : null;
+    // 1. First check if already recorded in our RiderTransaction ledger
+    const searchConditions = [];
+    if (payment_id) {
+      searchConditions.push({ reference_id: String(payment_id) });
+    }
+    if (order_id) {
+      searchConditions.push({ reference_id: String(order_id) });
+      searchConditions.push(sequelize.literal(`metadata->>'razorpay_order_id' = '${order_id}'`));
+    }
+    if (payment_id) {
+      searchConditions.push(sequelize.literal(`metadata->>'razorpay_payment_id' = '${payment_id}'`));
+    }
 
+    const existingTxn = await RiderTransaction.findOne({
+      where: {
+        riderId: rider.id,
+        [Op.or]: searchConditions
+      }
+    });
+
+    if (existingTxn) {
+      console.log(`✅ [checkRiderRazorpayOrderStatus] Payment already recorded in ledger for rider ${rider.id}: ${existingTxn.txnId}`);
+      return res.status(200).json({
+        success: true,
+        paid: true,
+        status: 'paid',
+        commission_due: rider.commission_due,
+        payment_id: existingTxn.reference_id || existingTxn.metadata?.razorpay_payment_id || payment_id
+      });
+    }
+
+    // 2. If not yet in ledger, query Razorpay API
+    let successfulPayment = null;
+    try {
+      if (payment_id) {
+        const p = await razorpay.payments.fetch(payment_id);
+        if (p && (p.status === 'captured' || p.status === 'authorized')) {
+          successfulPayment = p;
+        }
+      }
+      if (!successfulPayment && order_id) {
+        if (order_id.startsWith('pay_')) {
+          const p = await razorpay.payments.fetch(order_id);
+          if (p && (p.status === 'captured' || p.status === 'authorized')) {
+            successfulPayment = p;
+          }
+        } else if (order_id.startsWith('plink_')) {
+          const link = await razorpay.paymentLink.fetch(order_id);
+          if (link && (link.status === 'paid' || link.status === 'partially_paid')) {
+            successfulPayment = {
+              id: link.id,
+              amount: link.amount_paid || link.amount,
+              method: 'upi'
+            };
+          }
+        } else {
+          const payments = await razorpay.orders.fetchPayments(order_id);
+          if (payments && payments.items && payments.items.length > 0) {
+            successfulPayment = payments.items.find(p => p.status === 'captured' || p.status === 'authorized');
+          }
+        }
+      }
+    } catch (rzpErr) {
+      console.warn('⚠️ Razorpay API fetch notice:', rzpErr.message);
+    }
+
+    // 3. If payment captured, update DB and deduct commission
     if (successfulPayment) {
-      const paidAmount = successfulPayment.amount / 100;
-      // Check if transaction already created
-      const existingTxn = await RiderTransaction.findOne({
-        where: { reference_id: successfulPayment.id }
+      const paidAmount = successfulPayment.amount ? (Number(successfulPayment.amount) / 100) : Number(amount || 0);
+      const currentDue = Number(rider.commission_due || 0);
+      rider.commission_due = Math.max(0, Number((currentDue - paidAmount).toFixed(2)));
+      await rider.save();
+
+      // Direct SQL update to ensure immediate DB flush
+      await sequelize.query(
+        `UPDATE "riders" SET "commission_due" = :commission_due, "updatedAt" = NOW() WHERE "id" = :id`,
+        {
+          replacements: { commission_due: rider.commission_due, id: rider.id },
+          type: sequelize.QueryTypes.UPDATE
+        }
+      );
+
+      await RiderTransaction.create({
+        riderId: rider.id,
+        txnId: `TXN${Date.now()}`,
+        title: 'Platform Commission Paid (Razorpay)',
+        amount: paidAmount,
+        type: 'CREDIT',
+        category: 'commission_payment',
+        status: 'SUCCESS',
+        reference_id: successfulPayment.id || payment_id || order_id,
+        metadata: {
+          paid_amount: paidAmount,
+          remaining_due: rider.commission_due,
+          razorpay_order_id: order_id || null,
+          razorpay_payment_id: successfulPayment.id || payment_id,
+          method: successfulPayment.method || 'upi'
+        }
       });
 
-      if (!existingTxn) {
-        const currentDue = Number(rider.commission_due || 0);
-        rider.commission_due = Math.max(0, Number((currentDue - paidAmount).toFixed(2)));
-        await rider.save();
-
-        await RiderTransaction.create({
-          riderId: rider.id,
-          txnId: `TXN${Date.now()}`,
-          title: 'Platform Commission Paid (Razorpay)',
-          amount: paidAmount,
-          type: 'CREDIT',
-          category: 'commission_payment',
-          status: 'SUCCESS',
-          reference_id: successfulPayment.id,
-          metadata: {
-            paid_amount: paidAmount,
-            remaining_due: rider.commission_due,
-            razorpay_order_id: order_id,
-            razorpay_payment_id: successfulPayment.id,
-            method: successfulPayment.method
-          }
-        });
-      }
+      console.log(`✅ [checkRiderRazorpayOrderStatus] Deducted commission for rider ${rider.id}. New due: ₹${rider.commission_due}`);
 
       return res.status(200).json({
         success: true,
         paid: true,
         status: 'paid',
         commission_due: rider.commission_due,
-        payment_id: successfulPayment.id,
-        method: successfulPayment.method
+        payment_id: successfulPayment.id || payment_id,
+        method: successfulPayment.method || 'upi'
       });
     }
 
@@ -1221,6 +1277,7 @@ async function checkRiderRazorpayOrderStatus(req, res) {
       success: true,
       paid: false,
       status: 'pending',
+      commission_due: rider.commission_due,
       message: 'Payment not yet captured'
     });
   } catch (err) {
