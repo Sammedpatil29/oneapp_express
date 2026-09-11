@@ -179,16 +179,19 @@ module.exports = (io) => {
 
     // --- Rider Verifies 4-Digit OTP & Starts Trip ---
     socket.on('ride:verify_otp', async (data) => {
-      console.log(`🔐 Verifying OTP for ride ${data.rideId} with OTP ${data.otp}`);
+      const cleanRideId = data?.rideId;
+      const cleanEnteredOtp = data?.otp ? String(data.otp).trim() : '';
+      console.log(`🔐 Verifying OTP for ride ${cleanRideId} with OTP ${cleanEnteredOtp}`);
       try {
-        const ride = await Ride.findByPk(data.rideId);
+        const ride = await Ride.findByPk(cleanRideId);
         if (!ride) {
           return socket.emit('ride:otp_error', { message: 'Ride not found' });
         }
 
-        // Check OTP (matches ride.otp or accepts mock '1234' in testing)
-        const expectedOtp = ride.otp || '1234';
-        if (data.otp === expectedOtp || data.otp === '1234' || data.otp === ride.otp) {
+        const actualOtp = ride.otp ? String(ride.otp).trim() : '';
+
+        // Strict OTP verification: OTP must exist and match exactly
+        if (actualOtp && cleanEnteredOtp === actualOtp) {
           ride.status = 'in_progress';
           await ride.save();
 
@@ -206,8 +209,9 @@ module.exports = (io) => {
 
           io.emit('rideUpdate', payload);
           socket.emit('ride:started', { success: true, ride: payload });
-          console.log(`🚀 Trip started for ride ${data.rideId} (Rider onride)`);
+          console.log(`🚀 Trip started for ride ${cleanRideId} (Rider onride)`);
         } else {
+          console.warn(`❌ Incorrect OTP for ride ${cleanRideId}. Expected: ${actualOtp}, Entered: ${cleanEnteredOtp}`);
           socket.emit('ride:otp_error', { message: 'Incorrect 4-digit OTP. Please ask customer.' });
         }
       } catch (err) {
@@ -392,21 +396,52 @@ module.exports = (io) => {
 
     // --- Rider Live Location Updates ---
     socket.on('rider:location', async (data) => {
-      // data: { riderId, lat, lng, heading }
+      // data: { riderId, lat, lng, heading, rideId }
       try {
         if (data && data.riderId && data.lat && data.lng) {
           const lat = parseFloat(data.lat);
           const lng = parseFloat(data.lng);
           const heading = parseFloat(data.heading || 0);
 
-          // Broadcast to riders and admin
+          // Update rider's current coordinates in DB
+          try {
+            if (isValidUUID(data.riderId)) {
+              await Rider.update({ current_lat: lat, current_lng: lng }, { where: { id: data.riderId } });
+            } else {
+              await Rider.update({ current_lat: lat, current_lng: lng }, { where: { contact: String(data.riderId) } });
+            }
+          } catch (dbErr) {
+            // non-fatal
+          }
+
+          // Broadcast to riders, user app (customer), and admin
           io.emit('rider:location_update', {
             riderId: data.riderId,
             lat,
             lng,
             heading,
+            rideId: data.rideId,
             timestamp: new Date().toISOString()
           });
+
+          // Also broadcast riderUpdate for user app tracking
+          io.emit('riderUpdate', {
+            riderId: data.riderId,
+            lat,
+            lng,
+            heading,
+            rideId: data.rideId
+          });
+
+          if (data.rideId) {
+            io.emit('ride:location', {
+              rideId: data.rideId,
+              riderId: data.riderId,
+              lat,
+              lng,
+              heading
+            });
+          }
         }
       } catch (err) {
         console.error('Location broadcast error:', err);
