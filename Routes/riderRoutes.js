@@ -28,7 +28,10 @@ const {
   unzipRiderKycDocs,
   updateRiderFcmToken,
   getRideDetail,
-  getRiderActiveRide
+  getRiderActiveRide,
+  getHostedRazorpayCheckout,
+  handleRiderRazorpayCallback,
+  checkRiderRazorpayOrderStatus
 } = require('../controllers/riderController');
 
 const path = require('path');
@@ -92,6 +95,9 @@ router.post('/wallet/pay-commission', payRiderCommission);
 router.post('/wallet/pay', payRiderCommission);
 router.post('/wallet/razorpay/order', createRiderRazorpayOrder);
 router.post('/wallet/razorpay/verify', verifyRiderRazorpayPayment);
+router.get('/wallet/razorpay/checkout', getHostedRazorpayCheckout);
+router.get('/wallet/razorpay/callback', handleRiderRazorpayCallback);
+router.post('/wallet/razorpay/check-status', checkRiderRazorpayOrderStatus);
 router.post('/wallet/withdraw', withdrawRiderWallet);
 
 // Referrals & Rewards
