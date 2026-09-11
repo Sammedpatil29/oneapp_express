@@ -1,6 +1,8 @@
 const Rider = require('../models/ridersModel');
 const Ride = require('../models/rideModel');
 const RiderTransaction = require('../models/riderTransactionModel');
+const RiderReferral = require('../models/riderReferralModel');
+const PayoutRequest = require('../models/payoutRequestModel');
 const User = require('../models/customUserModel');
 const { Op } = require('sequelize');
 const sequelize = require('../db');
@@ -719,12 +721,20 @@ async function getRiderWallet(req, res) {
       metadata: t.metadata || {}
     }));
 
-    const commissionDue = Number(rider.commission_due || 0);
+    const rawWalletBalance = (rider.wallet_balance !== undefined && rider.wallet_balance !== null)
+      ? Number(rider.wallet_balance) 
+      : -Number(rider.commission_due || 0);
+    const walletBalance = Number(rawWalletBalance.toFixed(2));
+    const commissionDue = Math.max(0, Number((-walletBalance).toFixed(2)));
+    const canWithdraw = walletBalance > 50;
 
     const walletData = {
       balance: {
+        wallet_balance: walletBalance,
         commission_due: commissionDue,
-        available: commissionDue,
+        can_withdraw: canWithdraw,
+        min_withdraw_amount: 50,
+        available: Math.max(0, walletBalance),
         cash_collected_in_hand: cashToday,
         total_cash_collected: monthTotal
       },
@@ -758,7 +768,9 @@ async function payRiderCommission(req, res) {
 
     const payNum = Number(amount);
     const currentDue = Number(rider.commission_due || 0);
-    rider.commission_due = Math.max(0, Number((currentDue - payNum).toFixed(2)));
+    const currentBal = (rider.wallet_balance !== undefined && rider.wallet_balance !== null) ? Number(rider.wallet_balance) : -currentDue;
+    rider.wallet_balance = Number((currentBal + payNum).toFixed(2));
+    rider.commission_due = Math.max(0, -rider.wallet_balance);
     await rider.save();
 
     const refId = `COMM-PAY-${Date.now().toString(36).toUpperCase()}`;
@@ -892,10 +904,12 @@ async function verifyRiderRazorpayPayment(req, res) {
       }
     }
 
-    // Deduct paid amount from commission_due
+    // Deduct paid amount from commission_due and add to wallet balance
     const payNum = Number(amount);
     const currentDue = Number(rider.commission_due || 0);
-    rider.commission_due = Math.max(0, Number((currentDue - payNum).toFixed(2)));
+    const currentBal = (rider.wallet_balance !== undefined && rider.wallet_balance !== null) ? Number(rider.wallet_balance) : -currentDue;
+    rider.wallet_balance = Number((currentBal + payNum).toFixed(2));
+    rider.commission_due = Math.max(0, -rider.wallet_balance);
     await rider.save();
 
     // Record verified transaction in ledger
@@ -1231,14 +1245,16 @@ async function checkRiderRazorpayOrderStatus(req, res) {
     if (successfulPayment) {
       const paidAmount = successfulPayment.amount ? (Number(successfulPayment.amount) / 100) : Number(amount || 0);
       const currentDue = Number(rider.commission_due || 0);
-      rider.commission_due = Math.max(0, Number((currentDue - paidAmount).toFixed(2)));
+      const currentBal = (rider.wallet_balance !== undefined && rider.wallet_balance !== null) ? Number(rider.wallet_balance) : -currentDue;
+      rider.wallet_balance = Number((currentBal + paidAmount).toFixed(2));
+      rider.commission_due = Math.max(0, -rider.wallet_balance);
       await rider.save();
 
       // Direct SQL update to ensure immediate DB flush
       await sequelize.query(
-        `UPDATE "riders" SET "commission_due" = :commission_due, "updatedAt" = NOW() WHERE "id" = :id`,
+        `UPDATE "riders" SET "commission_due" = :commission_due, "wallet_balance" = :wallet_balance, "updatedAt" = NOW() WHERE "id" = :id`,
         {
-          replacements: { commission_due: rider.commission_due, id: rider.id },
+          replacements: { commission_due: rider.commission_due, wallet_balance: rider.wallet_balance, id: rider.id },
           type: sequelize.QueryTypes.UPDATE
         }
       );
@@ -1286,58 +1302,174 @@ async function checkRiderRazorpayOrderStatus(req, res) {
   }
 }
 
-// 5g. Fallback alias for backward-compatibility
+// 5g. Request Wallet Withdrawal (UPI)
 async function withdrawRiderWallet(req, res) {
-  return payRiderCommission(req, res);
+  try {
+    const { id, amount, upi_id } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Captain ID is required.' });
+    }
+
+    const withdrawAmount = Number(amount);
+    if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid withdrawal amount.' });
+    }
+
+    if (withdrawAmount < 50) {
+      return res.status(400).json({ success: false, message: 'Minimum withdrawal amount is ₹50.' });
+    }
+
+    const cleanUpi = String(upi_id || '').trim();
+    if (!cleanUpi || !cleanUpi.includes('@')) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid UPI ID (e.g., yourname@okhdfcbank).' });
+    }
+
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found.' });
+    }
+
+    const currentBal = (rider.wallet_balance !== undefined && rider.wallet_balance !== null)
+      ? Number(rider.wallet_balance) 
+      : -Number(rider.commission_due || 0);
+
+    if (currentBal <= 50) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Wallet balance must be greater than ₹50 to withdraw. Current balance: ₹${currentBal}` 
+      });
+    }
+
+    if (withdrawAmount > currentBal) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Withdrawal amount (₹${withdrawAmount}) exceeds available balance (₹${currentBal}).` 
+      });
+    }
+
+    // Deduct amount from rider wallet balance (hold for payout)
+    rider.wallet_balance = Number((currentBal - withdrawAmount).toFixed(2));
+    rider.commission_due = Math.max(0, -rider.wallet_balance);
+    await rider.save();
+
+    const payoutId = `PO-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const payoutRecord = await PayoutRequest.create({
+      payout_id: payoutId,
+      riderId: rider.id,
+      rider_name: rider.name || 'Captain',
+      rider_phone: rider.contact || rider.email || '',
+      amount: withdrawAmount,
+      upi_id: cleanUpi,
+      status: 'PENDING'
+    });
+
+    try {
+      await RiderTransaction.create({
+        riderId: rider.id,
+        txnId: `TXN${Date.now()}`,
+        title: `Payout Request (UPI: ${cleanUpi})`,
+        amount: withdrawAmount,
+        type: 'DEBIT',
+        category: 'withdrawal',
+        status: 'PENDING',
+        reference_id: payoutId,
+        metadata: {
+          payout_id: payoutId,
+          upi_id: cleanUpi,
+          amount: withdrawAmount,
+          status: 'Submitted'
+        }
+      });
+    } catch (txnErr) {
+      console.warn('Could not record withdrawal transaction:', txnErr.message);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Payout request of ₹${withdrawAmount} submitted successfully. Status: Submitted.`,
+      payout_id: payoutId,
+      new_balance: rider.wallet_balance,
+      payout: payoutRecord
+    });
+  } catch (error) {
+    console.error('Error in withdrawRiderWallet:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
 }
 
 // 6. Get Referrals & Rewards
 async function getRiderReferrals(req, res) {
   try {
     const { id } = req.params;
-    const referralCode = `CAPTAIN${(id || '101').toString().slice(-4).toUpperCase()}`;
+    const rider = await findRiderByIdOrFallback(id);
+    if (!rider) {
+      return res.status(404).json({ success: false, message: 'Captain not found.' });
+    }
+
+    const referralCode = rider.referral_code || `CAPTAIN${rider.id.toString().slice(-4).toUpperCase()}`;
+
+    // Query actual referrals made by this rider
+    let referrals = [];
+    try {
+      referrals = await RiderReferral.findAll({
+        where: { referrer_id: rider.id },
+        include: [
+          {
+            model: Rider,
+            as: 'referee',
+            attributes: ['id', 'name', 'contact', 'email', 'createdAt']
+          }
+        ],
+        order: [['createdAt', 'DESC']]
+      });
+    } catch (refQueryErr) {
+      console.warn('Could not query RiderReferral:', refQueryErr.message);
+    }
+
+    const totalReferred = referrals.length;
+    const successfulReferrals = referrals.filter(r => r.status === 'COMPLETED').length;
+    const totalRewardsEarned = successfulReferrals * 150;
+
+    const friendsList = referrals.map(ref => {
+      const referee = ref.referee || {};
+      const daysRemaining = Math.max(0, Math.ceil((new Date(ref.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+      const isExpired = Date.now() > new Date(ref.expires_at).getTime() && ref.status !== 'COMPLETED';
+      const status = isExpired ? 'EXPIRED' : ref.status;
+
+      let contactDisplay = referee.contact || '';
+      if (!contactDisplay && referee.email) {
+        contactDisplay = referee.email.replace(/^(.{2})(.*)(@.*)$/, '$1***$3');
+      }
+
+      return {
+        id: ref.id,
+        name: referee.name || 'Captain Partner',
+        contact: contactDisplay || 'Registered Captain',
+        join_date: new Date(ref.signup_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+        rides_completed: ref.completed_rides,
+        target_rides: ref.target_rides,
+        status: status,
+        reward_credited: ref.reward_credited ? 150 : 0,
+        days_remaining: daysRemaining,
+        expires_at: ref.expires_at
+      };
+    });
 
     const referralData = {
       referral_code: referralCode,
       referral_link: `https://pintu.democompany.in.net/join?ref=${referralCode}`,
-      reward_per_referral: 500,
-      reward_condition: 'Earn ₹500 when your friend joins & completes 10 rides within 14 days.',
-      total_referred: 8,
-      successful_referrals: 5,
-      total_rewards_earned: 2500,
-      friends_list: [
-        {
-          name: 'Rahul Sharma',
-          contact: '9876543210',
-          join_date: '01 Sep 2026',
-          rides_completed: 10,
-          target_rides: 10,
-          status: 'COMPLETED',
-          reward_credited: 500
-        },
-        {
-          name: 'Amit Verma',
-          contact: '9812345678',
-          join_date: '04 Sep 2026',
-          rides_completed: 7,
-          target_rides: 10,
-          status: 'IN_PROGRESS',
-          reward_credited: 0
-        },
-        {
-          name: 'Vikram Patil',
-          contact: '9988776655',
-          join_date: '06 Sep 2026',
-          rides_completed: 3,
-          target_rides: 10,
-          status: 'IN_PROGRESS',
-          reward_credited: 0
-        }
-      ]
+      reward_per_referral: 150,
+      reward_condition: 'Earn ₹150 when your friend joins with your code & completes 10 rides within 15 days.',
+      total_referred: totalReferred,
+      successful_referrals: successfulReferrals,
+      total_rewards_earned: totalRewardsEarned,
+      friends_list: friendsList
     };
 
     return res.status(200).json({ success: true, data: referralData });
   } catch (error) {
+    console.error('Error in getRiderReferrals:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 }
@@ -1771,7 +1903,7 @@ async function sendRiderEmailOtp(req, res) {
 // 11. Verify Email OTP & Handle Login vs Onboarding Redirection
 async function verifyRiderEmailOtp(req, res) {
   try {
-    const { email, otp } = req.body;
+    const { email, otp, referral_code } = req.body;
     if (!email || !otp) {
       return res.status(400).json({ success: false, message: 'Email and OTP are required.' });
     }
@@ -1800,7 +1932,11 @@ async function verifyRiderEmailOtp(req, res) {
     if (!rider) {
       // Immediately create a registered Captain record so they are an authenticated logged-in user
       isNewUser = true;
+      const newCaptainId = require('crypto').randomUUID();
+      const newRefCode = `CAPTAIN${newCaptainId.slice(-4).toUpperCase()}`;
+
       rider = await Rider.create({
+        id: newCaptainId,
         email: cleanEmail,
         name: "", // Empty string avoids NOT NULL constraint while letting user provide their real legal name
         vehicle_number: "", // Avoids NOT NULL constraint on initial signup before onboarding
@@ -1813,9 +1949,51 @@ async function verifyRiderEmailOtp(req, res) {
         kyc_docs: { checklist: { ...DEFAULT_CHECKLIST } },
         join_date: new Date().toISOString().split('T')[0],
         current_lat: 12.9716,
-        current_lng: 77.5946
+        current_lng: 77.5946,
+        referral_code: newRefCode,
+        wallet_balance: 0,
+        commission_due: 0
       });
       console.log(`🆕 Registered new Captain account on email OTP verification: ${rider.id} (${cleanEmail})`);
+
+      // Track referral if referral_code is provided
+      if (referral_code) {
+        try {
+          const cleanRef = String(referral_code).trim().toUpperCase();
+          const referrer = await Rider.findOne({
+            where: {
+              [Op.or]: [
+                { referral_code: cleanRef },
+                sequelize.literal(`UPPER(CONCAT('CAPTAIN', RIGHT("id"::text, 4))) = '${cleanRef}'`),
+                { id: cleanRef }
+              ]
+            }
+          });
+
+          if (referrer && String(referrer.id) !== String(rider.id)) {
+            const signupAt = new Date();
+            const expiresAt = new Date(signupAt.getTime() + 15 * 24 * 60 * 60 * 1000); // 15 days
+
+            await RiderReferral.create({
+              referrer_id: referrer.id,
+              referee_id: rider.id,
+              referral_code: cleanRef,
+              signup_at: signupAt,
+              expires_at: expiresAt,
+              completed_rides: 0,
+              target_rides: 10,
+              reward_amount: 150,
+              reward_credited: false,
+              status: 'IN_PROGRESS'
+            });
+            console.log(`🎉 Referral linked! Referrer: ${referrer.id} -> Referee: ${rider.id}. Milestone: 10 rides in 15 days for ₹150.`);
+          } else {
+            console.warn(`⚠️ Referral code "${cleanRef}" not matched to any active referrer.`);
+          }
+        } catch (refErr) {
+          console.warn('⚠️ Could not link referral record:', refErr.message);
+        }
+      }
     }
 
     // Generate JWT authentication token
