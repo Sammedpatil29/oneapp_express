@@ -56,6 +56,7 @@ const adminOrderRoutes = require('./Routes/adminOrderRoutes');
 const sidebarItemRoutes = require('./Routes/sidebarItemRoutes');
 const groceryCouponRoutes = require('./Routes/couponRoutes');
 const ticketRoutes = require('./Routes/ticketRoutes');
+const payoutRoutes = require('./Routes/payoutRoutes');
 const emailRoutes = require('./Routes/emailRoutes');
 const groceryDamage = require('./Routes/groceryDamageRoutes');
 const askPintuRoutes = require('./Routes/askPintuRoutes.js');
@@ -173,6 +174,7 @@ app.use('/api/admin/orders', adminOrderRoutes);
 app.use('/api/sidebar-items', sidebarItemRoutes);
 app.use('/api/grocery-coupons', groceryCouponRoutes);
 app.use('/api/tickets', ticketRoutes);
+app.use('/api/payouts', payoutRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/grocery-damage', groceryDamage)
 app.use('/api/ask-pintu', askPintuRoutes);

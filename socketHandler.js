@@ -1,6 +1,7 @@
 const Ride = require('./models/rideModel');
 const Rider = require('./models/ridersModel');
 const RiderTransaction = require('./models/riderTransactionModel');
+const RiderReferral = require('./models/riderReferralModel');
 const Metadata = require('./models/metadataModel');
 const { stopRiderSearch, skipToNextRider } = require('./controllers/createRideController');
 
@@ -257,15 +258,20 @@ module.exports = (io) => {
           if (ride.riderId) {
             const rider = await Rider.findByPk(ride.riderId);
             if (rider) {
-              // Cash payment: Rider collected full tripFare in cash. Commission is added to platform commission_due.
-              rider.commission_due = Number(((Number(rider.commission_due) || 0) + platformCommission).toFixed(2));
+              // Cash payment: Rider collected full tripFare in cash. Commission is deducted as DEBIT from wallet balance.
+              const currentDue = Number(rider.commission_due || 0);
+              const currentBal = (rider.wallet_balance !== undefined && rider.wallet_balance !== null)
+                ? Number(rider.wallet_balance)
+                : -currentDue;
+              rider.wallet_balance = Number((currentBal - platformCommission).toFixed(2));
+              rider.commission_due = Math.max(0, -rider.wallet_balance);
               rider.earnings = (Number(rider.earnings) || 0) + tripFare;
               rider.status = 'online';
               await rider.save();
 
               socket.emit('rider:status', { status: 'online', riderId: rider.id });
               io.emit('riderUpdate', { status: 'online', riderId: rider.id });
-              console.log(`✅ Ride ${ride.id} completed. Commission ₹${platformCommission} added to due. Rider ${rider.id} back to online.`);
+              console.log(`✅ Ride ${ride.id} completed. Commission ₹${platformCommission} debited. Rider ${rider.id} wallet_balance: ₹${rider.wallet_balance}`);
 
               // Record commission debit transaction in wallet ledger
               if (platformCommission > 0) {
@@ -297,6 +303,69 @@ module.exports = (io) => {
                 } catch (txnErr) {
                   console.warn('Could not record RiderTransaction on complete:', txnErr.message);
                 }
+              }
+
+              // Check if Rider is a referee in an active referral program
+              try {
+                const activeReferral = await RiderReferral.findOne({
+                  where: {
+                    referee_id: rider.id,
+                    status: 'IN_PROGRESS'
+                  }
+                });
+
+                if (activeReferral) {
+                  const now = Date.now();
+                  const expiry = new Date(activeReferral.expires_at).getTime();
+
+                  if (now <= expiry) {
+                    activeReferral.completed_rides = (activeReferral.completed_rides || 0) + 1;
+                    console.log(`🚴 Referee ${rider.id} completed ride ${activeReferral.completed_rides}/${activeReferral.target_rides} for referral #${activeReferral.id}`);
+
+                    if (activeReferral.completed_rides >= activeReferral.target_rides && !activeReferral.reward_credited) {
+                      activeReferral.status = 'COMPLETED';
+                      activeReferral.reward_credited = true;
+                      await activeReferral.save();
+
+                      // Credit ₹150 to referrer!
+                      const referrer = await Rider.findByPk(activeReferral.referrer_id);
+                      if (referrer) {
+                        const refDue = Number(referrer.commission_due || 0);
+                        const refBal = (referrer.wallet_balance !== undefined && referrer.wallet_balance !== null)
+                          ? Number(referrer.wallet_balance)
+                          : -refDue;
+                        referrer.wallet_balance = Number((refBal + 150).toFixed(2));
+                        referrer.commission_due = Math.max(0, -referrer.wallet_balance);
+                        await referrer.save();
+
+                        await RiderTransaction.create({
+                          riderId: referrer.id,
+                          txnId: `TXN${Date.now()}`,
+                          title: `Referral Bonus Credited (+₹150)`,
+                          amount: 150,
+                          type: 'CREDIT',
+                          category: 'referral',
+                          status: 'SUCCESS',
+                          reference_id: activeReferral.id,
+                          metadata: {
+                            referee_id: rider.id,
+                            referee_name: rider.name || 'Captain',
+                            reward_amount: 150
+                          }
+                        });
+                        console.log(`🎁 Credited ₹150 referral bonus to Referrer ${referrer.id} (Referee ${rider.id} completed 10 rides in 15 days!)`);
+                      }
+                    } else {
+                      await activeReferral.save();
+                    }
+                  } else {
+                    activeReferral.status = 'EXPIRED';
+                    await activeReferral.save();
+                    console.log(`⌛ Referral #${activeReferral.id} for referee ${rider.id} expired (exceeded 15 days).`);
+                  }
+                }
+              } catch (refErr) {
+                console.warn('⚠️ Notice checking referral milestone:', refErr.message);
               }
             }
           }
