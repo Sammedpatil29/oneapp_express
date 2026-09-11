@@ -2264,6 +2264,9 @@ async function uploadKycZip(req, res) {
       if (extractionResult.metadataJson && extractionResult.metadataJson.documents) {
         parsedKycDocs.meta_details = extractionResult.metadataJson.documents;
       }
+      if (extractionResult.extractedFiles && extractionResult.extractedFiles.live_selfie) {
+        rider.image_url = extractionResult.extractedFiles.live_selfie;
+      }
     }
 
     rider.kyc_docs = parsedKycDocs;
@@ -2273,7 +2276,7 @@ async function uploadKycZip(req, res) {
     await rider.save();
 
     await Rider.update(
-      { kyc_docs: parsedKycDocs, is_verified: false, status: 'offline' },
+      { kyc_docs: parsedKycDocs, image_url: rider.image_url || '', is_verified: false, status: 'offline' },
       { where: { id: rider.id } }
     );
 
@@ -2464,8 +2467,13 @@ async function unzipRiderKycDocs(req, res) {
       currentDocs.meta_details = extractionResult.metadataJson.documents;
     }
 
+    const updateFields = { kyc_docs: currentDocs };
+    if (extractionResult.extractedFiles && extractionResult.extractedFiles.live_selfie) {
+      updateFields.image_url = extractionResult.extractedFiles.live_selfie;
+    }
+
     await Rider.update(
-      { kyc_docs: currentDocs },
+      updateFields,
       { where: { id: rider.id } }
     );
 
