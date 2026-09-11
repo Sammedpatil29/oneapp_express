@@ -1,7 +1,21 @@
 // routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
-const { verifyToken, login, register, getUser, updateUser, updateFcmToken, getAllUsers } = require('../controllers/authController.js');
+const {
+  verifyToken,
+  login,
+  register,
+  getUser,
+  updateUser,
+  updateFcmToken,
+  getAllUsers,
+  sendCustomerEmailOtp,
+  verifyCustomerEmailOtp
+} = require('../controllers/authController.js');
+
+// 0. Customer Email OTP Authentication
+router.post('/send-otp', sendCustomerEmailOtp);
+router.post('/verify-otp', verifyCustomerEmailOtp);
 
 // 1. Verify Token (Call this on app startup)
 router.get('/verify-token', verifyToken);

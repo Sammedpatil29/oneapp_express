@@ -2,6 +2,7 @@
 const User = require('../models/customUserModel');
 const { verify, sign } = require('jsonwebtoken');
 const { sendFcmNotification } = require('../utils/fcmSender');
+const { sendEmailUtility } = require('./emailController');
 
 // 🔐 Secret Key (Put this in your .env file in production)
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key_123';
@@ -291,4 +292,144 @@ async function getAllUsers(req, res) {
   }
 }
 
-module.exports = { verifyToken, login, register, getUser, updateUser, updateFcmToken, getAllUsers };
+// In-memory store for Customer Email OTPs
+const customerEmailOtpStore = new Map();
+
+/**
+ * 8. Send Customer Email OTP
+ * POST /api/auth/send-otp
+ */
+async function sendCustomerEmailOtp(req, res) {
+  try {
+    const { email } = req.body;
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    // Generate secure 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    customerEmailOtpStore.set(cleanEmail, { otp, expiresAt, attempts: 0 });
+
+    const htmlBody = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h2 style="color: #a000e2; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">Pintu</h2>
+          <p style="color: #64748b; font-size: 14px; margin-top: 4px; font-weight: 500;">Everyday Mobility &amp; Minutes Delivery</p>
+        </div>
+        <p style="font-size: 15px; color: #1e293b; margin-bottom: 12px;">Hello,</p>
+        <p style="font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 24px;">Use the verification code below to securely authenticate your Pintu customer account.</p>
+        <div style="background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); border: 2px dashed #a000e2; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 24px;">
+          <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #7900b2; font-family: monospace;">${otp}</span>
+        </div>
+        <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-bottom: 20px;">⏱️ This one-time code is valid for <strong>10 minutes</strong>. For your account security, please do not share this code with anyone.</p>
+        <div style="border-top: 1px solid #f1f5f9; padding-top: 16px; margin-top: 24px;">
+          <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">© 2026 Pintu Logistics &amp; Mobility Pvt Ltd. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+
+    // Attempt email delivery
+    const emailResult = await sendEmailUtility(cleanEmail, `Your Pintu Verification Code: ${otp}`, htmlBody);
+    console.log(`✉️ [CUSTOMER EMAIL OTP] Sent to: ${cleanEmail} | OTP: ${otp} | SentStatus: ${emailResult?.success}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Verification code sent successfully to ' + cleanEmail,
+      devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined
+    });
+  } catch (error) {
+    console.error('Error in sendCustomerEmailOtp:', error);
+    return res.status(500).json({ success: false, message: 'Failed to send verification code. ' + error.message });
+  }
+}
+
+/**
+ * 9. Verify Customer Email OTP
+ * POST /api/auth/verify-otp
+ */
+async function verifyCustomerEmailOtp(req, res) {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Email and verification code are required.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanOtp = otp.toString().trim();
+
+    const record = customerEmailOtpStore.get(cleanEmail);
+    if (!record) {
+      return res.status(400).json({
+        success: false,
+        message: 'No OTP requested for this email or it has expired. Please request a new code.'
+      });
+    }
+
+    if (Date.now() > record.expiresAt) {
+      customerEmailOtpStore.delete(cleanEmail);
+      return res.status(400).json({
+        success: false,
+        message: 'Verification code has expired. Please request a new code.'
+      });
+    }
+
+    if (record.otp !== cleanOtp) {
+      record.attempts = (record.attempts || 0) + 1;
+      if (record.attempts >= 5) {
+        customerEmailOtpStore.delete(cleanEmail);
+        return res.status(400).json({
+          success: false,
+          message: 'Too many incorrect attempts. Please request a new verification code.'
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        message: 'Incorrect verification code. Please check and try again.'
+      });
+    }
+
+    // Code verified successfully -> consume it
+    customerEmailOtpStore.delete(cleanEmail);
+
+    // Check if user exists by email
+    const user = await User.findOne({ where: { email: cleanEmail } });
+
+    if (user) {
+      const token = sign({ id: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: '30d' });
+      user.last_login = new Date();
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        isNewUser: false,
+        token,
+        user
+      });
+    } else {
+      return res.status(200).json({
+        success: true,
+        isNewUser: true,
+        email: cleanEmail,
+        message: 'Email verified. Please complete your registration.'
+      });
+    }
+  } catch (error) {
+    console.error('Error in verifyCustomerEmailOtp:', error);
+    return res.status(500).json({ success: false, message: 'Server error during OTP verification: ' + error.message });
+  }
+}
+
+module.exports = {
+  verifyToken,
+  login,
+  register,
+  getUser,
+  updateUser,
+  updateFcmToken,
+  getAllUsers,
+  sendCustomerEmailOtp,
+  verifyCustomerEmailOtp
+};

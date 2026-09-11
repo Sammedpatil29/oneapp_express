@@ -154,7 +154,7 @@ exports.getServiceAreaById = async (req, res) => {
  */
 exports.createServiceArea = async (req, res) => {
   try {
-    const { cityName, polygon, strokeColor, areaColor, isActive, description } = req.body;
+    const { cityName, polygon, strokeColor, areaColor, isActive, isOffline, offlineMessage, description } = req.body;
 
     if (!cityName || !String(cityName).trim()) {
       return res.status(400).json({ success: false, message: 'City name is required as unique identity.' });
@@ -194,6 +194,8 @@ exports.createServiceArea = async (req, res) => {
       strokeColor: strokeColor || '#a000e2',
       areaColor: areaColor || '#a000e2',
       isActive: isActive !== undefined ? !!isActive : true,
+      isOffline: isOffline !== undefined ? !!isOffline : false,
+      offlineMessage: offlineMessage ? String(offlineMessage).trim() : '',
       description: description || `Service territory for ${trimmedCity}`
     });
 
@@ -228,7 +230,7 @@ exports.createServiceArea = async (req, res) => {
 exports.updateServiceArea = async (req, res) => {
   try {
     const { id } = req.params;
-    const { cityName, polygon, strokeColor, areaColor, isActive, description } = req.body;
+    const { cityName, polygon, strokeColor, areaColor, isActive, isOffline, offlineMessage, description } = req.body;
 
     const area = await ServiceArea.findByPk(id);
     if (!area) {
@@ -273,6 +275,8 @@ exports.updateServiceArea = async (req, res) => {
     if (strokeColor !== undefined) area.strokeColor = strokeColor;
     if (areaColor !== undefined) area.areaColor = areaColor;
     if (isActive !== undefined) area.isActive = !!isActive;
+    if (isOffline !== undefined) area.isOffline = !!isOffline;
+    if (offlineMessage !== undefined) area.offlineMessage = String(offlineMessage).trim();
     if (description !== undefined) area.description = description;
 
     await area.save();
@@ -349,7 +353,9 @@ exports.checkLocation = async (req, res) => {
           area: {
             id: area.id,
             cityName: area.cityName,
-            description: area.description
+            description: area.description,
+            isOffline: !!area.isOffline,
+            offlineMessage: area.offlineMessage || ''
           }
         });
       }
