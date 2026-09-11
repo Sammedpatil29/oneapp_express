@@ -34,10 +34,38 @@ sequelize.authenticate()
     try {
       const RiderReferral = require('./models/riderReferralModel');
       const PayoutRequest = require('./models/payoutRequestModel');
+      const ServiceArea = require('./models/serviceAreaModel');
       await RiderReferral.sync({ alter: false });
       await PayoutRequest.sync({ alter: false });
+      await ServiceArea.sync({ alter: false });
+
+      // Auto-seed default service area from Metadata if empty
+      const existingCount = await ServiceArea.count();
+      if (existingCount === 0) {
+        const Metadata = require('./models/metadataModel');
+        const meta = await Metadata.findOne();
+        if (meta && meta.polygon && Array.isArray(meta.polygon) && meta.polygon.length >= 3) {
+          const lats = meta.polygon.map(p => Number(p.lat));
+          const lngs = meta.polygon.map(p => Number(p.lng));
+          const center = {
+            lat: lats.reduce((a, b) => a + b, 0) / lats.length,
+            lng: lngs.reduce((a, b) => a + b, 0) / lngs.length
+          };
+          await ServiceArea.create({
+            cityName: 'Jamkhandi',
+            polygon: meta.polygon,
+            center,
+            radiusKm: 5.0,
+            strokeColor: '#a000e2',
+            areaColor: '#a000e2',
+            isActive: true,
+            description: 'Primary Service Area (Jamkhandi)'
+          });
+          console.log('✅ Auto-seeded initial ServiceArea "Jamkhandi" from existing metadata polygon.');
+        }
+      }
     } catch (syncErr) {
-      console.warn('⚠️ Auto-sync referral/payout tables notice:', syncErr.message);
+      console.warn('⚠️ Auto-sync tables notice:', syncErr.message);
     }
   })
   .catch((err) => console.error('Unable to connect to the database:', err));
