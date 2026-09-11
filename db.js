@@ -39,6 +39,13 @@ sequelize.authenticate()
       await PayoutRequest.sync({ alter: false });
       await ServiceArea.sync({ alter: false });
 
+      try {
+        await sequelize.query(`ALTER TABLE service_areas ADD COLUMN IF NOT EXISTS "isOffline" BOOLEAN DEFAULT false;`);
+        await sequelize.query(`ALTER TABLE service_areas ADD COLUMN IF NOT EXISTS "offlineMessage" VARCHAR(500) DEFAULT '';`);
+      } catch (colErr) {
+        console.warn('⚠️ ServiceArea columns auto-patch notice:', colErr.message);
+      }
+
       // Auto-seed default service area from Metadata if empty
       const existingCount = await ServiceArea.count();
       if (existingCount === 0) {
