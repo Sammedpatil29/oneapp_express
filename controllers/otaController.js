@@ -63,12 +63,13 @@ exports.checkUpdate = async (req, res) => {
     const hasUpdate = compareVersions(latestRelease.version, version) > 0;
 
     if (hasUpdate) {
+      const sanitizedUrl = (latestRelease.bundle_url || '').replace(/^http:\/\/(?!localhost|127\.0\.0\.1)/i, 'https://');
       return res.json({
         success: true,
         updateAvailable: true,
         version: latestRelease.version,
         channel: latestRelease.channel,
-        bundleUrl: latestRelease.bundle_url,
+        bundleUrl: sanitizedUrl,
         checksum: latestRelease.checksum,
         isMandatory: latestRelease.is_mandatory,
         minNativeVersion: latestRelease.min_native_version,
@@ -118,11 +119,12 @@ exports.getManifest = async (req, res) => {
       }
     }
 
+    const sanitizedUrl = (latest.bundle_url || '').replace(/^http:\/\/(?!localhost|127\.0\.0\.1)/i, 'https://');
     return res.json({
       appId: latest.app_id,
       version: latest.version,
       channel: latest.channel,
-      url: latest.bundle_url,
+      url: sanitizedUrl,
       checksum: latest.checksum,
       mandatory: latest.is_mandatory,
       notes: latest.release_notes,
@@ -331,8 +333,24 @@ exports.uploadBundle = async (req, res) => {
     fs.mkdirSync(manifestDir, { recursive: true });
 
     // Build the final manifest object
-    const hostUrl = process.env.OTA_CDN_URL || `${req.protocol}://${req.get('host')}/ota`;
-    const bundleUrl = `${hostUrl}/bundles/${bundleFileName}`;
+    let hostUrl = process.env.OTA_CDN_URL;
+    if (!hostUrl) {
+      const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https').replace(/:$/, '');
+      const host = req.get('host') || 'pintu-api.democompany.in.net';
+      hostUrl = `${proto}://${host}/ota`;
+    }
+    // Remote URLs must always use HTTPS for native OtaKit compatibility
+    if (!hostUrl.includes('localhost') && !hostUrl.includes('127.0.0.1')) {
+      hostUrl = hostUrl.replace(/^http:\/\//i, 'https://');
+    }
+
+    let bundleUrl = (parsedManifest.url && typeof parsedManifest.url === 'string' && parsedManifest.url.startsWith('http'))
+      ? parsedManifest.url
+      : `${hostUrl}/bundles/${bundleFileName}`;
+
+    if (!bundleUrl.includes('localhost') && !bundleUrl.includes('127.0.0.1')) {
+      bundleUrl = bundleUrl.replace(/^http:\/\//i, 'https://');
+    }
 
     const finalManifest = {
       version: relVersion,
