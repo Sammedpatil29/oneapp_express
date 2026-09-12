@@ -3,6 +3,7 @@ const Address = require('../models/Address');
 const sequelize = require('../db');
 
 /**
+ * 1. Add New Address
  * Helper: Mark a specific address as primary for a user.
  * Unsets all other addresses for that user, then sets the target.
  */
@@ -33,6 +34,7 @@ const createAddress = async (req, res) => {
     const user_id = req.user.id;
 
     const newAddress = await Address.create({ ...req.body, user_id });
+    
 
     // Auto-mark newly saved address as primary
     await markAsPrimary(user_id, newAddress.id);
@@ -59,6 +61,7 @@ const getAddresses = async (req, res) => {
 
     const addresses = await Address.findAll({
       where: { user_id: userId },
+      order: [['createdAt', 'DESC']] // Newest first
       order: [['is_primary', 'DESC'], ['createdAt', 'DESC']]
     });
 
@@ -87,6 +90,9 @@ const updateAddress = async (req, res) => {
     });
 
     if (updated) {
+      if (req.body.is_primary === true || req.body.is_primary === 'true') {
+        await markAsPrimary(userId, id);
+      }
       const updatedAddress = await Address.findOne({ where: { id, user_id: userId } });
       return res.json({ 
         success: true, 
@@ -180,8 +186,8 @@ module.exports = {
   createAddress,
   getAddresses,
   updateAddress,
+  deleteAddress
   deleteAddress,
   setPrimaryAddress,
   getPrimaryAddress
 };
-

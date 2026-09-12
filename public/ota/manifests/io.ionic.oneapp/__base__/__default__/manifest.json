@@ -1,9 +1,9 @@
 {
-  "version": "0.0.13",
-  "url": "https://pintu-api.democompany.in.net/ota/bundles/oneapp-bundle-0.0.13.zip",
-  "sha256": "3eed001a441665404a2845a933413a3c663d711335b6ebe84361db44438dc9c3",
-  "size": 29018255,
-  "releaseId": "oneapp-rel-0.0.13-mtylhaji",
+  "version": "0.0.16",
+  "url": "https://pintu-api.democompany.in.net/ota/bundles/oneapp-bundle-0.0.16.zip",
+  "sha256": "2b8cde16b5418b6118d054b567fdd50c91e5457fdc5f501a677fbe9489d578e8",
+  "size": 29025148,
+  "releaseId": "oneapp-rel-0.0.16-mtyr5ip7",
   "strategy": "zip",
   "forceImmediate": false
 }
