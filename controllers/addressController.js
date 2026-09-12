@@ -61,7 +61,6 @@ const getAddresses = async (req, res) => {
 
     const addresses = await Address.findAll({
       where: { user_id: userId },
-      order: [['createdAt', 'DESC']] // Newest first
       order: [['is_primary', 'DESC'], ['createdAt', 'DESC']]
     });
 
@@ -186,7 +185,6 @@ module.exports = {
   createAddress,
   getAddresses,
   updateAddress,
-  deleteAddress
   deleteAddress,
   setPrimaryAddress,
   getPrimaryAddress
