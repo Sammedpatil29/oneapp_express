@@ -46,6 +46,13 @@ sequelize.authenticate()
         console.warn('⚠️ ServiceArea columns auto-patch notice:', colErr.message);
       }
 
+      // Auto-patch: add is_primary column to addresses table
+      try {
+        await sequelize.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS "is_primary" BOOLEAN DEFAULT false;`);
+      } catch (colErr) {
+        console.warn('⚠️ Address is_primary auto-patch notice:', colErr.message);
+      }
+
       // Auto-seed default service area from Metadata if empty
       const existingCount = await ServiceArea.count();
       if (existingCount === 0) {
