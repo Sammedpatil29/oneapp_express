@@ -15,6 +15,7 @@ const pool = require('./db'); // Only if you actually use it
 
 const PORT = process.env.PORT || 8080;
 const app = express();
+app.set('trust proxy', 1);
 
 // ✅ Create HTTP server and attach Socket.IO properly
 const server = http.createServer(app);
