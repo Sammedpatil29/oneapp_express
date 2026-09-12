@@ -46,6 +46,10 @@ const Address = sequelize.define('Address', {
     type: DataTypes.STRING(200),
     allowNull: true
   },
+  is_primary: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
   // Foreign Key to User
   user_id: {
     type: DataTypes.BIGINT,
