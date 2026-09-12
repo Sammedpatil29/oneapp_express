@@ -284,3 +284,121 @@ exports.reportStatus = async (req, res) => {
   }
 };
 
+// 8. Upload & publish OTA bundle directly (Called from CLI publish-ota script)
+exports.uploadBundle = async (req, res) => {
+  try {
+    const secret = req.headers['x-ota-secret'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
+    const validSecret = process.env.OTA_SECRET_KEY || 'pintu-ota-secret-key-2026';
+
+    if (!secret || secret !== validSecret) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized: Invalid or missing OTA secret key.'
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No bundle file uploaded.'
+      });
+    }
+
+    const {
+      appId = 'io.ionic.oneapp',
+      channel = '__base__',
+      runtime = '__default__',
+      version,
+      manifest: rawManifest,
+      forceImmediate
+    } = req.body;
+
+    let parsedManifest = {};
+    if (rawManifest) {
+      try {
+        parsedManifest = typeof rawManifest === 'string' ? JSON.parse(rawManifest) : rawManifest;
+      } catch (e) {
+        parsedManifest = {};
+      }
+    }
+
+    const relVersion = version || parsedManifest.version || '1.0.0';
+    const bundleFileName = req.file.filename;
+
+    // Determine target manifest directory
+    const otaPublicDir = path.join(__dirname, '..', 'public', 'ota');
+    const manifestDir = path.join(otaPublicDir, 'manifests', appId, channel, runtime);
+    fs.mkdirSync(manifestDir, { recursive: true });
+
+    // Build the final manifest object
+    const hostUrl = process.env.OTA_CDN_URL || `${req.protocol}://${req.get('host')}/ota`;
+    const bundleUrl = `${hostUrl}/bundles/${bundleFileName}`;
+
+    const finalManifest = {
+      version: relVersion,
+      url: bundleUrl,
+      sha256: parsedManifest.sha256 || '',
+      size: req.file.size,
+      releaseId: parsedManifest.releaseId || `${appId}-${relVersion}-${Date.now().toString(36)}`,
+      strategy: 'zip',
+      forceImmediate: forceImmediate === 'true' || forceImmediate === true || parsedManifest.forceImmediate === true
+    };
+
+    // Save manifest.json in the channel/runtime path
+    const manifestFilePath = path.join(manifestDir, 'manifest.json');
+    fs.writeFileSync(manifestFilePath, JSON.stringify(finalManifest, null, 2), 'utf-8');
+
+    // Also write a copy to root manifest dir for easy access: manifests/<appId>/manifest.json
+    const rootManifestDir = path.join(otaPublicDir, 'manifests', appId);
+    fs.mkdirSync(rootManifestDir, { recursive: true });
+    fs.writeFileSync(path.join(rootManifestDir, 'manifest.json'), JSON.stringify(finalManifest, null, 2), 'utf-8');
+
+    // Sync with database if OtaRelease model exists
+    try {
+      if (OtaRelease) {
+        let existingRelease = await OtaRelease.findOne({
+          where: { app_id: appId, version: relVersion, channel: channel }
+        });
+
+        if (existingRelease) {
+          existingRelease.bundle_url = bundleUrl;
+          existingRelease.checksum = finalManifest.sha256;
+          existingRelease.is_active = true;
+          await existingRelease.save();
+        } else {
+          await OtaRelease.create({
+            app_id: appId,
+            version: relVersion,
+            channel: channel,
+            platform: 'android',
+            bundle_url: bundleUrl,
+            checksum: finalManifest.sha256,
+            is_active: true
+          });
+        }
+      }
+    } catch (dbErr) {
+      console.warn('⚠️  Could not sync OTA release to DB (file stored successfully):', dbErr.message);
+    }
+
+    console.log(`✅ [OTA Upload] Uploaded ${bundleFileName} (${req.file.size} bytes) for ${appId} v${relVersion}`);
+
+    return res.status(200).json({
+      success: true,
+      message: `OTA bundle and manifest for ${appId} v${relVersion} uploaded successfully!`,
+      version: relVersion,
+      bundleUrl,
+      manifestUrl: `${hostUrl}/manifests/${appId}/${channel}/${runtime}/manifest.json`,
+      manifest: finalManifest
+    });
+  } catch (error) {
+    console.error('❌ Error uploading OTA bundle:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to upload OTA bundle',
+      error: error.message
+    });
+  }
+};
+
+
