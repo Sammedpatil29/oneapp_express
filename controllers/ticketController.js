@@ -5,18 +5,25 @@ const { Op } = require('sequelize');
 
 exports.createTicket = async (req, res) => {
   try {
-    // Payload: { token, phone, title, details, orderId, orderService }
-    const { token, phone, title, details, orderId, orderService } = req.body;
-    
-    if (!token && !phone) {
+    // Payload can be from Support Ticket or Suggestion:
+    // { token, phone, title, subject, details, suggestion, suggesion, category, orderId, orderService }
+    const authHeaderToken = req.headers.authorization?.split(' ')[1];
+    const { token, phone, title, subject, details, suggestion, suggesion, category, orderId, orderService } = req.body;
+    const resolvedToken = token || authHeaderToken;
+
+    const finalTitle = (title || subject || (category ? `[${category}] Suggestion` : 'Product/Service Suggestion')).trim();
+    const finalDetails = (details || suggestion || suggesion || '').trim();
+    const finalOrderService = orderService || (category ? `Suggestion: ${category}` : 'Suggestion');
+
+    if (!resolvedToken && !phone) {
       return res.status(401).json({ success: false, message: 'No token or phone provided' });
     }
 
     let user;
 
-    if (token) {
+    if (resolvedToken) {
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_123');
+        const decoded = jwt.verify(resolvedToken, process.env.JWT_SECRET || 'your_super_secret_key_123');
         user = await User.findByPk(decoded.id || decoded.user_id);
       } catch (err) {
         return res.status(401).json({ success: false, message: 'Invalid or expired token' });
@@ -29,15 +36,16 @@ exports.createTicket = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Auto-generate a unique ticket ID (e.g., TCK-1234-5678)
-    const ticket_id = `TCK-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`;
+    // Auto-generate a unique ticket ID (e.g., TCK-1234-5678 or SUG-1234-5678)
+    const prefix = finalOrderService.toLowerCase().includes('suggestion') ? 'SUG' : 'TCK';
+    const ticket_id = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}-${Date.now().toString().slice(-4)}`;
 
     const newTicket = await Ticket.create({
       ticket_id,
-      orderId,
-      orderService,
-      title,
-      details,
+      orderId: orderId || null,
+      orderService: finalOrderService,
+      title: finalTitle,
+      details: finalDetails,
       userDetails: {
         userId: user.id,
         userName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username,

@@ -206,11 +206,12 @@ async function updateUser(req, res) {
           return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        const { first_name, last_name, email } = req.body;
+        const { first_name, last_name, profile_image } = req.body;
 
-        if (first_name !== undefined) user.first_name = first_name;
-        if (last_name !== undefined) user.last_name = last_name;
-        if (email !== undefined) user.email = email;
+        // Strictly disallow updating phone and email: they are permanent and immutable
+        if (first_name !== undefined) user.first_name = String(first_name).trim();
+        if (last_name !== undefined) user.last_name = String(last_name).trim();
+        if (profile_image !== undefined) user.profile_image = profile_image;
 
         await user.save();
 
