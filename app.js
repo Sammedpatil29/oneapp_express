@@ -64,6 +64,8 @@ const askPintuRoutes = require('./Routes/askPintuRoutes.js');
 const otaRoutes = require('./Routes/otaRoutes');
 const serviceAreaRoutes = require('./Routes/serviceAreaRoutes');
 const referralRoutes = require('./Routes/referralRoutes');
+const propertyRoutes = require('./Routes/propertyRoutes');
+const { seedProperties } = require('./controllers/propertyController');
 const path = require('path');
 
 
@@ -137,6 +139,16 @@ sequelize
       console.log('⚠️ Enum onride update notice:', enumErr.message);
     }
 
+    try {
+      await sequelize.query(`
+        ALTER TABLE "properties" 
+        ADD COLUMN IF NOT EXISTS "is_verified" BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS "status" VARCHAR(50) DEFAULT 'approved';
+      `);
+    } catch (propErr) {
+      console.log('⚠️ Properties is_verified check:', propErr.message);
+    }
+
     console.log('✅ Models are synced with the database.');
     // Run status check immediately on startup
     updatePastBookings();
@@ -148,6 +160,9 @@ sequelize
 
     // Initialize Daily Cron Jobs
     startMorningNotificationJob();
+
+    // Auto seed initial properties if empty
+    seedProperties();
   })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
@@ -185,6 +200,7 @@ app.use('/api/ask-pintu', askPintuRoutes);
 app.use('/api/ota', otaRoutes);
 app.use('/api/service-areas', serviceAreaRoutes);
 app.use('/api/referral', referralRoutes);
+app.use('/api/properties', propertyRoutes);
 
 // ✅ OTA Updates static route (serves manifests and update bundles for OtaKit)
 const otaPublicDir = path.join(__dirname, 'public', 'ota');
