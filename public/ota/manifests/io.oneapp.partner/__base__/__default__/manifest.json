@@ -1,9 +1,9 @@
 {
   "version": "0.0.19",
-  "url": "https://pintu-api.democompany.in.net/ota/bundles/partner-bundle-0.0.19.zip",
+  "url": "https://oneapp-express-singapore.onrender.com/ota/bundles/partner-bundle-0.0.19.zip",
   "sha256": "71e2ab649b89975c5191608ccc96ec07e3f1eda558f384e7be708a23854d0820",
   "size": 2100518,
-  "releaseId": "partner-rel-0.0.19-mtx2g5lu",
+  "releaseId": "partner-rel-0.0.19-mu032itc",
   "strategy": "zip",
   "forceImmediate": false
 }
