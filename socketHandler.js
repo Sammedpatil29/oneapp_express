@@ -371,6 +371,16 @@ module.exports = (io) => {
               } catch (refErr) {
                 console.warn('⚠️ Notice checking referral milestone:', refErr.message);
               }
+
+              // Trigger Customer Referral Reward if passenger was referred
+              if (ride.userId) {
+                try {
+                  const { completeReferralReward } = require('./controllers/referralController');
+                  completeReferralReward(ride.userId).catch(e => console.warn('Customer referral reward error:', e.message));
+                } catch (e) {
+                  // ignore
+                }
+              }
             }
           }
 

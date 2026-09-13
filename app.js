@@ -63,6 +63,7 @@ const groceryDamage = require('./Routes/groceryDamageRoutes');
 const askPintuRoutes = require('./Routes/askPintuRoutes.js');
 const otaRoutes = require('./Routes/otaRoutes');
 const serviceAreaRoutes = require('./Routes/serviceAreaRoutes');
+const referralRoutes = require('./Routes/referralRoutes');
 const path = require('path');
 
 
@@ -183,6 +184,7 @@ app.use('/api/grocery-damage', groceryDamage)
 app.use('/api/ask-pintu', askPintuRoutes);
 app.use('/api/ota', otaRoutes);
 app.use('/api/service-areas', serviceAreaRoutes);
+app.use('/api/referral', referralRoutes);
 
 // ✅ OTA Updates static route (serves manifests and update bundles for OtaKit)
 const otaPublicDir = path.join(__dirname, 'public', 'ota');

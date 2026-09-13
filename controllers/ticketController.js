@@ -11,9 +11,20 @@ exports.createTicket = async (req, res) => {
     const { token, phone, title, subject, details, suggestion, suggesion, category, orderId, orderService } = req.body;
     const resolvedToken = token || authHeaderToken;
 
-    const finalTitle = (title || subject || (category ? `[${category}] Suggestion` : 'Product/Service Suggestion')).trim();
+    // Normalize suggestion type/category (Product vs Service)
+    let rawCategory = (category || req.body.type || '').trim();
+    let normalizedCategory = 'Product'; // Default to Product
+    if (/service/i.test(rawCategory)) {
+      normalizedCategory = 'Service';
+    } else if (/product/i.test(rawCategory)) {
+      normalizedCategory = 'Product';
+    } else if (rawCategory) {
+      normalizedCategory = rawCategory;
+    }
+
+    const finalTitle = (title || subject || `[${normalizedCategory}] Suggestion`).trim();
     const finalDetails = (details || suggestion || suggesion || '').trim();
-    const finalOrderService = orderService || (category ? `Suggestion: ${category}` : 'Suggestion');
+    const finalOrderService = orderService || `Suggestion: ${normalizedCategory}`;
 
     if (!resolvedToken && !phone) {
       return res.status(401).json({ success: false, message: 'No token or phone provided' });
@@ -44,6 +55,8 @@ exports.createTicket = async (req, res) => {
       ticket_id,
       orderId: orderId || null,
       orderService: finalOrderService,
+      type: normalizedCategory,
+      category: normalizedCategory,
       title: finalTitle,
       details: finalDetails,
       userDetails: {
