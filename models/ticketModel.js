@@ -15,6 +15,14 @@ const Ticket = sequelize.define('Ticket', {
     type: DataTypes.STRING,
     allowNull: true
   },
+  type: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  category: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
   userDetails: {
     type: DataTypes.JSONB,
     defaultValue: {}
