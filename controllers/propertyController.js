@@ -557,13 +557,15 @@ exports.getAllProperties = async (req, res) => {
     const where = { is_active: true };
 
     // Status filter: in main app, show only approved and sold properties.
-    // Other statuses (verifying, pending_verification, rejected) are hidden from general feed.
+    // In admin app, status=all returns all properties regardless of status.
     if (status && status !== 'all') {
       if (status.includes(',')) {
         where.status = { [Op.in]: status.split(',').map(s => s.trim()) };
       } else {
         where.status = status;
       }
+    } else if (status === 'all') {
+      // Do not restrict status when requesting all (e.g. for admin panel)
     } else {
       // Default main feed shows approved and sold properties
       where.status = { [Op.in]: ['approved', 'sold'] };
@@ -848,7 +850,26 @@ exports.updateProperty = async (req, res) => {
       });
     }
 
-    await property.update(req.body);
+    const body = { ...req.body };
+    if (body.price !== undefined) {
+      const price = parseFloat(body.price);
+      const category = body.category || property.category;
+      if (!body.priceDisplay) {
+        body.priceDisplay = formatIndianPrice(price, category);
+      }
+    }
+
+    if (body.coordinates && (!body.lat || !body.lng)) {
+      body.lat = body.coordinates.lat;
+      body.lng = body.coordinates.lng;
+    } else if ((body.lat || body.lng) && !body.coordinates) {
+      body.coordinates = {
+        lat: parseFloat(body.lat || property.lat || 0),
+        lng: parseFloat(body.lng || property.lng || 0)
+      };
+    }
+
+    await property.update(body);
 
     return res.status(200).json({
       success: true,
