@@ -65,9 +65,23 @@ const User = sequelize.define('User', {
     type: DataTypes.JSONB,
     defaultValue: [],
   },
+  referral_code: {
+    type: DataTypes.STRING(30),
+    allowNull: true,
+    unique: true,
+  },
+  referred_by_code: {
+    type: DataTypes.STRING(30),
+    allowNull: true,
+  },
+  referred_by_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
 }, {
   timestamps: false, // or true if you want Sequelize to manage createdAt/updatedAt
   tableName: 'user_customuser', // optional, to match Django table naming
 });
 
 module.exports = User;
+

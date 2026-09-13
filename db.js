@@ -32,10 +32,20 @@ sequelize.authenticate()
       console.warn('⚠️ Auto-patch onride notice:', e.message);
     }
     try {
+      await sequelize.query(`ALTER TABLE "user_customuser" ADD COLUMN IF NOT EXISTS "referral_code" VARCHAR(30);`);
+      await sequelize.query(`ALTER TABLE "user_customuser" ADD COLUMN IF NOT EXISTS "referred_by_code" VARCHAR(30);`);
+      await sequelize.query(`ALTER TABLE "user_customuser" ADD COLUMN IF NOT EXISTS "referred_by_id" INTEGER;`);
+      await sequelize.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_customuser_referral_code ON "user_customuser" ("referral_code") WHERE "referral_code" IS NOT NULL;`);
+    } catch (e) {
+      console.warn('⚠️ Auto-patch user referral columns notice:', e.message);
+    }
+    try {
       const RiderReferral = require('./models/riderReferralModel');
+      const UserReferral = require('./models/userReferralModel');
       const PayoutRequest = require('./models/payoutRequestModel');
       const ServiceArea = require('./models/serviceAreaModel');
       await RiderReferral.sync({ alter: false });
+      await UserReferral.sync({ alter: false });
       await PayoutRequest.sync({ alter: false });
       await ServiceArea.sync({ alter: false });
 

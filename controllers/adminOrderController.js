@@ -3,6 +3,7 @@ const DineoutOrder = require('../models/dineoutOrderModel');
 const Booking = require('../models/bookingModel');
 const Ride = require('../models/rideModel');
 const User = require('../models/customUserModel');
+const { completeReferralReward } = require('./referralController');
 const { Op } = require('sequelize');
 
 /**
@@ -211,6 +212,15 @@ exports.updateOrderStatus = async (req, res) => {
 
     if (!updated || !order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Trigger referral completion reward if order is completed or delivered
+    const upperStatus = String(status).toUpperCase();
+    if (upperStatus === 'COMPLETED' || upperStatus === 'DELIVERED') {
+      const targetUserId = order.user_id || order.userId;
+      if (targetUserId) {
+        completeReferralReward(targetUserId).catch(e => console.warn('Referral completion trigger error:', e.message));
+      }
     }
 
     res.status(200).json({ success: true, message: 'Order status updated', data: order });

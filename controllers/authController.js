@@ -1,5 +1,7 @@
 // controllers/authController.js
 const User = require('../models/customUserModel');
+const UserReferral = require('../models/userReferralModel');
+const { generateUniqueReferralCode } = require('./referralController');
 const { verify, sign } = require('jsonwebtoken');
 const { sendFcmNotification } = require('../utils/fcmSender');
 const { sendEmailUtility } = require('./emailController');
@@ -61,6 +63,12 @@ async function login(req, res) {
 
     if (user) {
       // ✅ User found: Generate Token & Login
+      // ✅ User found: Backfill referral code if not present
+      if (!user.referral_code) {
+        user.referral_code = await generateUniqueReferralCode(user.first_name || user.username);
+      }
+
+      // Generate Token & Login
       const token = sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
       
       // Update last_login
@@ -94,7 +102,7 @@ async function login(req, res) {
  */
 async function register(req, res) {
   try {
-    const { phone, username, email, first_name, last_name, fcm_token } = req.body;
+    const { phone, username, email, first_name, last_name, fcm_token, referral_code } = req.body;
 
     // Basic Validation
     if (!phone || !username || !email) {
@@ -107,6 +115,34 @@ async function register(req, res) {
       return res.status(409).json({ success: false, message: 'User with this phone already exists' });
     }
 
+    // Generate unique referral code for the new user
+    const newUserReferralCode = await generateUniqueReferralCode(first_name || username);
+
+    // Check if user was referred by someone
+    let referrerUser = null;
+    let cleanReferredByCode = null;
+    let initialSavings = 0;
+    let initialSavingsTx = [];
+
+    if (referral_code && typeof referral_code === 'string' && referral_code.trim().length > 0) {
+      cleanReferredByCode = referral_code.trim().toUpperCase();
+      referrerUser = await User.findOne({ where: { referral_code: cleanReferredByCode } });
+
+      if (referrerUser) {
+        initialSavings = 50.0;
+        initialSavingsTx = [
+          {
+            id: 'ref_welcome_' + Date.now(),
+            title: 'Referral Welcome Bonus',
+            amount: 50.0,
+            type: 'CREDIT',
+            date: new Date().toISOString(),
+            description: `Welcome bonus for joining with code ${cleanReferredByCode}`
+          }
+        ];
+      }
+    }
+
     // Create new user
     const newUser = await User.create({
       phone,
@@ -115,11 +151,42 @@ async function register(req, res) {
       first_name,
       last_name,
       fcm_token,
+      referral_code: newUserReferralCode,
+      referred_by_code: referrerUser ? cleanReferredByCode : null,
+      referred_by_id: referrerUser ? referrerUser.id : null,
+      total_savings: initialSavings,
+      savings_transactions: initialSavingsTx,
       is_active: true,
       role: 'user', // default role
       date_joined: new Date(),
       last_login: new Date()
     });
+
+    // Create UserReferral tracking record if referred
+    if (referrerUser) {
+      try {
+        await UserReferral.create({
+          referrer_id: referrerUser.id,
+          referee_id: newUser.id,
+          referral_code: cleanReferredByCode,
+          reward_amount: 50.0,
+          referee_reward: 50.0,
+          status: 'REGISTERED',
+          reward_credited: false
+        });
+
+        // Notify referrer if FCM token is available
+        if (referrerUser.fcm_token) {
+          sendFcmNotification(
+            referrerUser.fcm_token,
+            'Friend Joined Pintu! 🎉',
+            `${first_name || 'A friend'} joined using your referral code (${cleanReferredByCode})! You will earn ₹50 on their first order.`
+          ).catch(e => console.warn('Referral FCM notice error:', e.message));
+        }
+      } catch (refErr) {
+        console.error('Error creating UserReferral entry:', refErr);
+      }
+    }
 
     // ✅ Generate Token immediately after creation
     const token = sign({ id: newUser.id, role: newUser.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -399,6 +466,9 @@ async function verifyCustomerEmailOtp(req, res) {
     const user = await User.findOne({ where: { email: cleanEmail } });
 
     if (user) {
+      if (!user.referral_code) {
+        user.referral_code = await generateUniqueReferralCode(user.first_name || user.username);
+      }
       const token = sign({ id: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: '30d' });
       user.last_login = new Date();
       await user.save();
