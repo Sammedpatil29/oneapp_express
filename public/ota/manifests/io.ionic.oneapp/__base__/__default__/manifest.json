@@ -1,9 +1,9 @@
 {
-  "version": "0.0.35",
-  "url": "https://pintu-api.democompany.in.net/ota/bundles/oneapp-bundle-0.0.35.zip",
-  "sha256": "7e705a0334e75095936080157d88a235817069a431fd5d0d544f13509b3377ce",
-  "size": 3495426,
-  "releaseId": "oneapp-rel-0.0.35-mu0321ww",
+  "version": "0.0.37",
+  "url": "https://oneapp-express-singapore.onrender.com/ota/bundles/oneapp-bundle-0.0.37.zip",
+  "sha256": "c0da389e70cf89ec73c100616140e1a1e41275930fad345c9c86ca803e4434ab",
+  "size": 3494636,
+  "releaseId": "oneapp-rel-0.0.37-mu04zd5r",
   "strategy": "zip",
   "forceImmediate": false
 }
