@@ -178,6 +178,7 @@ const Property = sequelize.define('Property', {
     type: DataTypes.STRING(50),
     allowNull: false,
     defaultValue: 'pending_verification', // 'approved' | 'pending_verification' | 'verifying' | 'sold' | 'rejected'
+    defaultValue: 'pending_verification', // 'approved' | 'pending_verification' | 'sold' | 'closed' | 'rejected'
   },
   user_id: {
     type: DataTypes.BIGINT,
