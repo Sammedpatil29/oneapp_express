@@ -1,9 +1,9 @@
 {
-  "version": "0.0.37",
-  "url": "https://oneapp-express-singapore.onrender.com/ota/bundles/oneapp-bundle-0.0.37.zip",
-  "sha256": "c0da389e70cf89ec73c100616140e1a1e41275930fad345c9c86ca803e4434ab",
-  "size": 3494636,
-  "releaseId": "oneapp-rel-0.0.37-mu04zd5r",
+  "version": "0.0.40",
+  "url": "https://oneapp-express-singapore.onrender.com/ota/bundles/oneapp-bundle-0.0.40.zip",
+  "sha256": "43339325df970abdeb57ba9d75bc89e4e18275f56ceb2f7f9095914efe72d599",
+  "size": 3499301,
+  "releaseId": "oneapp-rel-0.0.40-mu0uhrax",
   "strategy": "zip",
   "forceImmediate": false
 }
