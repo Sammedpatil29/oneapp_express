@@ -63,6 +63,20 @@ sequelize.authenticate()
         console.warn('⚠️ Address is_primary auto-patch notice:', colErr.message);
       }
 
+      // Auto-patch: add new banner columns
+      try {
+        await sequelize.query(`ALTER TABLE "banners" ADD COLUMN IF NOT EXISTS "title" VARCHAR(150) DEFAULT '';`);
+        await sequelize.query(`ALTER TABLE "banners" ADD COLUMN IF NOT EXISTS "service_id" BIGINT;`);
+        await sequelize.query(`ALTER TABLE "banners" ADD COLUMN IF NOT EXISTS "service_title" VARCHAR(100) DEFAULT '';`);
+        await sequelize.query(`ALTER TABLE "banners" ADD COLUMN IF NOT EXISTS "cities" JSONB DEFAULT '[]'::jsonb;`);
+        await sequelize.query(`ALTER TABLE "banners" ADD COLUMN IF NOT EXISTS "placement" VARCHAR(50) DEFAULT 'hometop';`);
+        await sequelize.query(`ALTER TABLE "banners" ADD COLUMN IF NOT EXISTS "placements" JSONB DEFAULT '["hometop"]'::jsonb;`);
+        await sequelize.query(`ALTER TABLE "banners" ADD COLUMN IF NOT EXISTS "priority" INTEGER DEFAULT 0;`);
+        await sequelize.query(`UPDATE "banners" SET "placements" = jsonb_build_array("placement") WHERE "placements" IS NULL OR jsonb_array_length("placements") = 0;`);
+      } catch (bannerErr) {
+        console.warn('⚠️ Banner columns auto-patch notice:', bannerErr.message);
+      }
+
       // Auto-seed default service area from Metadata if empty
       const existingCount = await ServiceArea.count();
       if (existingCount === 0) {
