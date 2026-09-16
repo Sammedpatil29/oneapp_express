@@ -40,6 +40,7 @@ const INITIAL_PROPERTIES = [
       'https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?auto=format&fit=crop&w=1200&q=80',
       'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1200&q=80'
     ],
+    videoUrl: 'https://www.youtube.com/watch?v=kJQP7kiw5Fk',
     bedrooms: 3,
     bathrooms: 3,
     balconies: 2,
@@ -796,6 +797,7 @@ exports.createProperty = async (req, res) => {
       images: Array.isArray(body.images) && body.images.length > 0 ? body.images : [
         'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80'
       ],
+      videoUrl: body.videoUrl || body.video_url || null,
       bedrooms: body.bedrooms ? parseInt(body.bedrooms, 10) : null,
       bathrooms: body.bathrooms ? parseInt(body.bathrooms, 10) : null,
       balconies: body.balconies ? parseInt(body.balconies, 10) : null,
