@@ -77,6 +77,13 @@ sequelize.authenticate()
         console.warn('⚠️ Banner columns auto-patch notice:', bannerErr.message);
       }
 
+      // Auto-patch: add videoUrl column to properties table
+      try {
+        await sequelize.query(`ALTER TABLE "properties" ADD COLUMN IF NOT EXISTS "videoUrl" TEXT;`);
+      } catch (colErr) {
+        console.warn('⚠️ Property videoUrl auto-patch notice:', colErr.message);
+      }
+
       // Auto-seed default service area from Metadata if empty
       const existingCount = await ServiceArea.count();
       if (existingCount === 0) {
