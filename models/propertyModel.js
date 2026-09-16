@@ -76,6 +76,10 @@ const Property = sequelize.define('Property', {
     allowNull: false,
     defaultValue: [],
   },
+  videoUrl: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
   bedrooms: {
     type: DataTypes.INTEGER,
     allowNull: true,
