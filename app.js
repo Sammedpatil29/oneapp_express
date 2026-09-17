@@ -68,6 +68,7 @@ const propertyRoutes = require('./Routes/propertyRoutes');
 const { seedProperties } = require('./controllers/propertyController');
 const pharmacyRoutes = require('./Routes/pharmacyRoutes');
 const { seedPharmacy } = require('./controllers/pharmacyController');
+const firebaseStorageRoutes = require('./Routes/firebaseStorageRoutes');
 const path = require('path');
 
 
@@ -207,6 +208,7 @@ app.use('/api/service-areas', serviceAreaRoutes);
 app.use('/api/referral', referralRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/pharmacy', pharmacyRoutes);
+app.use('/api/firebase-storage', firebaseStorageRoutes);
 
 // ✅ OTA Updates static route (serves manifests and update bundles for OtaKit)
 const otaPublicDir = path.join(__dirname, 'public', 'ota');

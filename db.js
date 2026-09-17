@@ -77,11 +77,12 @@ sequelize.authenticate()
         console.warn('⚠️ Banner columns auto-patch notice:', bannerErr.message);
       }
 
-      // Auto-patch: add videoUrl column to properties table
+      // Auto-patch: add videoUrl and youtubeUrl columns to properties table
       try {
         await sequelize.query(`ALTER TABLE "properties" ADD COLUMN IF NOT EXISTS "videoUrl" TEXT;`);
+        await sequelize.query(`ALTER TABLE "properties" ADD COLUMN IF NOT EXISTS "youtubeUrl" TEXT;`);
       } catch (colErr) {
-        console.warn('⚠️ Property videoUrl auto-patch notice:', colErr.message);
+        console.warn('⚠️ Property videoUrl/youtubeUrl auto-patch notice:', colErr.message);
       }
 
       // Auto-seed default service area from Metadata if empty

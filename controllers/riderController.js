@@ -21,6 +21,13 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET || 'q2lFxfOyVyAkD1GQMbitqNre',
 });
 
+const {
+  uploadRiderDocumentToFirebase,
+  uploadRiderKycZipToFirebase,
+  extractAndUploadKycZipToFirebase,
+  deleteRiderDocumentFromFirebase
+} = require('../utils/firebaseStorage');
+
 
 // Helper to extract KYC ZIP archive on server disk into public web directory
 function extractKycZipArchive(zipFilePath, riderId) {
@@ -2269,6 +2276,46 @@ async function uploadKycZip(req, res) {
       }
     }
 
+    // Upload ZIP archive and extracted documents to Firebase Storage for permanent cloud storage
+    try {
+      if (file.path && fs.existsSync(file.path)) {
+        const fileBuffer = fs.readFileSync(file.path);
+        const [fbZipResult, fbExtractionResult] = await Promise.all([
+          uploadRiderKycZipToFirebase(fileBuffer, file.filename, rider.id).catch(err => {
+            console.warn('⚠️ uploadRiderKycZipToFirebase error:', err.message);
+            return null;
+          }),
+          extractAndUploadKycZipToFirebase(fileBuffer, rider.id).catch(err => {
+            console.warn('⚠️ extractAndUploadKycZipToFirebase error:', err.message);
+            return null;
+          })
+        ]);
+
+        if (fbZipResult && fbZipResult.url) {
+          parsedKycDocs.zip_archive = {
+            ...parsedKycDocs.zip_archive,
+            url: fbZipResult.url,
+            firebasePath: fbZipResult.filePath
+          };
+        }
+
+        if (fbExtractionResult && fbExtractionResult.extractedFiles) {
+          parsedKycDocs.extracted_files = {
+            ...(parsedKycDocs.extracted_files || {}),
+            ...fbExtractionResult.extractedFiles
+          };
+          if (fbExtractionResult.metadataJson && fbExtractionResult.metadataJson.documents) {
+            parsedKycDocs.meta_details = fbExtractionResult.metadataJson.documents;
+          }
+          if (fbExtractionResult.extractedFiles.live_selfie) {
+            rider.image_url = fbExtractionResult.extractedFiles.live_selfie;
+          }
+        }
+      }
+    } catch (fbErr) {
+      console.warn('⚠️ Firebase KYC upload fallback to local disk:', fbErr.message);
+    }
+
     rider.kyc_docs = parsedKycDocs;
     rider.changed('kyc_docs', true);
     rider.is_verified = false;
@@ -2287,11 +2334,148 @@ async function uploadKycZip(req, res) {
       success: true,
       message: 'KYC documents and vehicle details submitted for review successfully',
       data: riderData,
-      zipUrl: zipRelativeUrl
+      zipUrl: (parsedKycDocs.zip_archive && parsedKycDocs.zip_archive.url) || zipRelativeUrl
     });
   } catch (error) {
     console.error('Error in uploadKycZip:', error);
     return res.status(500).json({ success: false, message: 'Failed to process KYC upload: ' + error.message });
+  }
+}
+
+/**
+ * Upload single rider document to Firebase Storage
+ * POST /api/rider/upload-document
+ * Expects multipart/form-data:
+ * - document (file)
+ * - riderId or id or contact or email (optional body)
+ * - docType (optional body: 'driving_license', 'rc_book', 'insurance', 'aadhaar_front', 'live_selfie', etc.)
+ */
+async function uploadRiderDocumentHandler(req, res) {
+  try {
+    const file = req.file;
+    const { riderId, id, contact, email, docType } = req.body;
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'No document file uploaded' });
+    }
+
+    const targetRiderId = riderId || id;
+    let rider = null;
+    if (targetRiderId) {
+      rider = await findRiderByIdOrFallback(targetRiderId);
+    }
+    if (!rider && email) {
+      rider = await Rider.findOne({ where: { email: email.toLowerCase().trim() } });
+    }
+    if (!rider && contact) {
+      rider = await Rider.findOne({ where: { contact: String(contact).trim() } });
+    }
+
+    const fileBuffer = file.buffer || (file.path && fs.existsSync(file.path) ? fs.readFileSync(file.path) : null);
+    if (!fileBuffer) {
+      return res.status(400).json({ success: false, message: 'Could not read uploaded document file' });
+    }
+
+    const assignedRiderId = rider ? rider.id : (targetRiderId || 'general');
+    const result = await uploadRiderDocumentToFirebase(
+      fileBuffer,
+      file.originalname || file.filename,
+      assignedRiderId,
+      docType
+    );
+
+    if (rider) {
+      let currentDocs = {};
+      if (rider.kyc_docs) {
+        if (typeof rider.kyc_docs === 'string') {
+          try { currentDocs = JSON.parse(rider.kyc_docs); } catch (e) { currentDocs = {}; }
+        } else if (typeof rider.kyc_docs === 'object') {
+          currentDocs = { ...rider.kyc_docs };
+        }
+      }
+
+      currentDocs.extracted_files = currentDocs.extracted_files || {};
+      currentDocs.extracted_files[result.docType] = result.url;
+
+      if (result.docType === 'live_selfie' || result.docType === 'profile_photo') {
+        rider.image_url = result.url;
+      }
+
+      rider.kyc_docs = currentDocs;
+      rider.changed('kyc_docs', true);
+      await rider.save();
+
+      await Rider.update(
+        { kyc_docs: currentDocs, image_url: rider.image_url || '' },
+        { where: { id: rider.id } }
+      );
+    }
+
+    // Clean up temp file on disk if multer stored it to disk
+    if (file.path && fs.existsSync(file.path)) {
+      try { fs.unlinkSync(file.path); } catch (_) {}
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Rider document uploaded to Firebase Storage successfully',
+      data: {
+        url: result.url,
+        filePath: result.filePath,
+        docType: result.docType,
+        size: result.size,
+        originalSize: result.originalSize,
+        riderId: assignedRiderId
+      }
+    });
+  } catch (error) {
+    console.error('Error in uploadRiderDocumentHandler:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to upload document to Firebase: ' + error.message
+    });
+  }
+}
+
+/**
+ * Delete rider document from Firebase Storage
+ * DELETE /api/rider/document
+ */
+async function deleteRiderDocumentHandler(req, res) {
+  try {
+    const { fileUrl, filePath, riderId, docType } = req.body;
+    const target = fileUrl || filePath;
+    if (!target) {
+      return res.status(400).json({ success: false, message: 'fileUrl or filePath is required' });
+    }
+
+    const deleted = await deleteRiderDocumentFromFirebase(target);
+
+    if (riderId && docType) {
+      const rider = await findRiderByIdOrFallback(riderId);
+      if (rider && rider.kyc_docs) {
+        let currentDocs = typeof rider.kyc_docs === 'string' ? JSON.parse(rider.kyc_docs) : { ...rider.kyc_docs };
+        if (currentDocs.extracted_files && currentDocs.extracted_files[docType]) {
+          delete currentDocs.extracted_files[docType];
+          rider.kyc_docs = currentDocs;
+          rider.changed('kyc_docs', true);
+          await rider.save();
+          await Rider.update(
+            { kyc_docs: currentDocs },
+            { where: { id: rider.id } }
+          );
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      deleted,
+      message: deleted ? 'Document deleted from Firebase Storage' : 'File not found or already deleted'
+    });
+  } catch (error) {
+    console.error('Error in deleteRiderDocumentHandler:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 }
 
@@ -2576,6 +2760,8 @@ module.exports = {
   getRiderActiveRide,
   getHostedRazorpayCheckout,
   handleRiderRazorpayCallback,
-  checkRiderRazorpayOrderStatus
+  checkRiderRazorpayOrderStatus,
+  uploadRiderDocumentHandler,
+  deleteRiderDocumentHandler
 };
 
