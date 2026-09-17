@@ -6,6 +6,9 @@ const GroceryOrder = require('../models/groceryOrderModel');
 const DineoutOrder = require('../models/dineoutOrderModel');
 const Booking = require('../models/bookingModel');
 const Ride = require('../models/rideModel');
+const User = require('../models/customUserModel');
+const Rider = require('../models/ridersModel');
+const PharmacyOrder = require('../models/pharmacyOrderModel');
 const { Op } = require('sequelize');
 
 const JWT_SECRET = process.env.JWT_SECRET || "django-insecure-0v(fl_v5t97hk)0mx&qq!b80ua)@-a@2e(5v4nac!$3l(m@9#(";
@@ -68,6 +71,7 @@ exports.getAdminHomeData = async (req, res) => {
     const endDate = req.body?.params?.endDate || req.query?.endDate;
     console.log(startDate, endDate)
 // 1775327400 1776537000 output
+
     let fromDate = new Date(0); // Default to beginning of time if no date provided
     let toDate = new Date();
     let trendEndDate = new Date();
@@ -94,20 +98,50 @@ exports.getAdminHomeData = async (req, res) => {
     const queryStartDate = new Date(Math.min(fromDate.getTime(), trendStartDate.getTime()));
     const queryEndDate = new Date(Math.max(toDate.getTime(), trendEndDate.getTime()));
 
-    // Fetch all services (unfiltered by date)
-    const services = await Service.findAll({
-      attributes: ['status']
-    });
 
+    const whereClause = {
+      createdAt: {
+        [Op.between]: [queryStartDate, queryEndDate]
+      }
+    };
+
+    // Parallel fetch: Services, Orders, Customer & Fleet statistics
+    const [
+      services,
+      groceries,
+      dineouts,
+      events,
+      rides,
+      pharmacyOrders,
+      totalCustomers,
+      totalRiders,
+      onlineRiders,
+      verifiedRiders
+    ] = await Promise.all([
+      Service.findAll({ attributes: ['id', 'title', 'status'] }).catch(() => []),
+      GroceryOrder.findAll({ where: whereClause, attributes: ['createdAt', 'bill_details'] }).catch(() => []),
+      DineoutOrder.findAll({ where: whereClause, attributes: ['createdAt', 'bill_details'] }).catch(() => []),
+      Booking.findAll({ where: whereClause, attributes: ['createdAt', 'total_amount'] }).catch(() => []),
+      Ride.findAll({ where: whereClause, attributes: ['createdAt', 'service_details'] }).catch(() => []),
+      PharmacyOrder.findAll({ where: whereClause, attributes: ['createdAt', 'billSummary'] }).catch(() => []),
+      User.count().catch(() => 0),
+      Rider.count().catch(() => 0),
+      Rider.count({ where: { status: 'online' } }).catch(() => 0),
+      Rider.count({ where: { is_verified: true } }).catch(() => 0)
+    ]);
+
+    // Service availability breakdown
+    let activeServicesCount = 0;
     const serviceCounts = {
-      'Not Available': 0,
-      'Available': 0
+      'Available': 0,
+      'Not Available': 0
     };
 
     services.forEach(service => {
       const status = (service.status || '').toLowerCase();
       if (status === 'active' || status === 'available') {
         serviceCounts['Available']++;
+        activeServicesCount++;
       } else {
         serviceCounts['Not Available']++;
       }
@@ -115,22 +149,9 @@ exports.getAdminHomeData = async (req, res) => {
 
     const serviceStatusData = Object.entries(serviceCounts);
 
-    // Fetch Orders for counts and sales
-    const whereClause = {
-      createdAt: {
-        [Op.between]: [queryStartDate, queryEndDate]
-      }
-    };
-
-    const [groceries, dineouts, events, rides] = await Promise.all([
-      GroceryOrder.findAll({ where: whereClause, attributes: ['createdAt', 'bill_details'] }),
-      DineoutOrder.findAll({ where: whereClause, attributes: ['createdAt', 'bill_details'] }),
-      Booking.findAll({ where: whereClause, attributes: ['createdAt', 'total_amount'] }),
-      Ride.findAll({ where: whereClause, attributes: ['createdAt', 'service_details'] })
-    ]);
-
-    const counts = { Grocery: 0, Dineout: 0, Event: 0, Ride: 0 };
-    const sales = { Grocery: 0, Dineout: 0, Event: 0, Ride: 0 };
+    // Categories initialization
+    const counts = { Grocery: 0, Dineout: 0, Event: 0, Ride: 0, Pharmacy: 0 };
+    const sales = { Grocery: 0, Dineout: 0, Event: 0, Ride: 0, Pharmacy: 0 };
 
     const trendMap = {};
     const trendKeys = [];
@@ -140,33 +161,32 @@ exports.getAdminHomeData = async (req, res) => {
       const d = new Date(trendEndDate);
       d.setDate(d.getDate() - i);
       
-      // YYYY-MM-DD acts as a timezone-safe local internal key
       const yyyy = d.getFullYear();
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
       const dateKey = `${yyyy}-${mm}-${dd}`;
       
-      // "May 1" specific format logic
       const displayStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       
       trendMap[dateKey] = { displayStr, count: 0, sales: 0 };
       trendKeys.push(dateKey);
     }
 
-    // Internal helper function to categorize logic across the 4 modules seamlessly
+    // Helper function to process orders
     const processOrders = (orders, category, getSalesFn) => {
+      if (!Array.isArray(orders)) return;
       orders.forEach(order => {
         const orderDate = new Date(order.createdAt);
         const orderTime = orderDate.getTime();
         const salesVal = parseFloat(getSalesFn(order)) || 0;
 
-        // 1. Overall stats for given generic date range
+        // 1. Overall stats for selected date range
         if (orderTime >= fromDate.getTime() && orderTime <= toDate.getTime()) {
-          counts[category]++;
-          sales[category] += salesVal;
+          counts[category] = (counts[category] || 0) + 1;
+          sales[category] = (sales[category] || 0) + salesVal;
         }
 
-        // 2. Add into 7-Day Trend specific buckets
+        // 2. 7-Day Trend specific buckets
         const oYyyy = orderDate.getFullYear();
         const oMm = String(orderDate.getMonth() + 1).padStart(2, '0');
         const oDd = String(orderDate.getDate()).padStart(2, '0');
@@ -179,11 +199,12 @@ exports.getAdminHomeData = async (req, res) => {
       });
     };
 
-    // Process models utilizing their unique JSON columns
+    // Process models
     processOrders(groceries, 'Grocery', o => o.bill_details?.toPay);
     processOrders(dineouts, 'Dineout', o => o.bill_details?.toPay || o.bill_details?.grandTotal);
     processOrders(events, 'Event', o => o.total_amount);
     processOrders(rides, 'Ride', o => o.service_details?.price);
+    processOrders(pharmacyOrders, 'Pharmacy', o => o.billSummary?.toPay || o.billSummary?.total);
 
     const orderCountData = Object.entries(counts);
     const salesValueData = Object.entries(sales).map(([k, v]) => [k, parseFloat(v.toFixed(2))]);
@@ -194,6 +215,23 @@ exports.getAdminHomeData = async (req, res) => {
 
     const totalOrders = Object.values(counts).reduce((acc, val) => acc + val, 0);
     const totalSales = parseFloat(Object.values(sales).reduce((acc, val) => acc + val, 0).toFixed(2));
+    const avgOrderValue = totalOrders > 0 ? parseFloat((totalSales / totalOrders).toFixed(2)) : 0;
+
+    // Detailed service breakdown table
+    const serviceBreakdown = Object.keys(counts).map(key => ({
+      name: key,
+      orders: counts[key],
+      sales: parseFloat(sales[key].toFixed(2)),
+      orderShare: totalOrders > 0 ? parseFloat(((counts[key] / totalOrders) * 100).toFixed(1)) : 0,
+      salesShare: totalSales > 0 ? parseFloat(((sales[key] / totalSales) * 100).toFixed(1)) : 0
+    }));
+
+    // Today's metrics
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const todayItem = trendMap[todayKey] || { count: 0, sales: 0 };
+    const todayOrders = todayItem.count;
+    const todaySales = parseFloat(todayItem.sales.toFixed(2));
 
     res.status(200).json({ 
       success: true, 
@@ -203,7 +241,17 @@ exports.getAdminHomeData = async (req, res) => {
         salesValueData,
         trendData,
         totalOrders,
-        totalSales
+        totalSales,
+        avgOrderValue,
+        totalCustomers,
+        totalRiders,
+        onlineRiders,
+        verifiedRiders,
+        activeServicesCount,
+        totalServicesCount: services.length,
+        serviceBreakdown,
+        todayOrders,
+        todaySales
       } 
     });
   } catch (error) {
