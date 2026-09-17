@@ -66,6 +66,8 @@ const serviceAreaRoutes = require('./Routes/serviceAreaRoutes');
 const referralRoutes = require('./Routes/referralRoutes');
 const propertyRoutes = require('./Routes/propertyRoutes');
 const { seedProperties } = require('./controllers/propertyController');
+const pharmacyRoutes = require('./Routes/pharmacyRoutes');
+const { seedPharmacy } = require('./controllers/pharmacyController');
 const path = require('path');
 
 
@@ -163,6 +165,9 @@ sequelize
 
     // Auto seed initial properties if empty
     seedProperties();
+
+    // Auto seed initial pharmacy medicines and lab tests if empty
+    seedPharmacy();
   })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
@@ -201,6 +206,7 @@ app.use('/api/ota', otaRoutes);
 app.use('/api/service-areas', serviceAreaRoutes);
 app.use('/api/referral', referralRoutes);
 app.use('/api/properties', propertyRoutes);
+app.use('/api/pharmacy', pharmacyRoutes);
 
 // ✅ OTA Updates static route (serves manifests and update bundles for OtaKit)
 const otaPublicDir = path.join(__dirname, 'public', 'ota');
