@@ -80,6 +80,10 @@ const Property = sequelize.define('Property', {
     type: DataTypes.TEXT,
     allowNull: true,
   },
+  youtubeUrl: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
   bedrooms: {
     type: DataTypes.INTEGER,
     allowNull: true,
