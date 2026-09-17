@@ -89,6 +89,12 @@ function computePolygonMetrics(polygon) {
  */
 exports.getAllServiceAreas = async (req, res) => {
   try {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+
     const { active } = req.query;
     const where = {};
     if (active === 'true') {
@@ -229,6 +235,12 @@ exports.createServiceArea = async (req, res) => {
  */
 exports.updateServiceArea = async (req, res) => {
   try {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+
     const { id } = req.params;
     const { cityName, polygon, strokeColor, areaColor, isActive, isOffline, offlineMessage, description } = req.body;
 

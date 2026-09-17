@@ -31,7 +31,9 @@ const {
   getRiderActiveRide,
   getHostedRazorpayCheckout,
   handleRiderRazorpayCallback,
-  checkRiderRazorpayOrderStatus
+  checkRiderRazorpayOrderStatus,
+  uploadRiderDocumentHandler,
+  deleteRiderDocumentHandler
 } = require('../controllers/riderController');
 
 const path = require('path');
@@ -71,6 +73,9 @@ router.post('/verify-otp', verifyRiderEmailOtp);
 router.get('/auth/status', getRiderAuthStatus);
 router.get('/check-phone', checkRiderPhone);
 router.post('/upload-kyc-zip', upload.single('kycZip'), uploadKycZip);
+router.post('/upload-document', upload.single('document'), uploadRiderDocumentHandler);
+router.post('/upload-doc', upload.single('document'), uploadRiderDocumentHandler);
+router.delete('/document', deleteRiderDocumentHandler);
 router.put('/checklist/:id', updateRiderChecklist);
 router.post('/checklist/:id', updateRiderChecklist);
 router.get('/unzip-kyc/:id', unzipRiderKycDocs);

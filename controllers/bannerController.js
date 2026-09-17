@@ -1,5 +1,6 @@
 const Banner = require('../models/banners');
 const Service = require('../models/Services');
+const { uploadBannerToFirebase, deleteBannerFromFirebase } = require('../utils/firebaseStorage');
 
 /**
  * Helper to normalize placements array from payload
@@ -285,18 +286,55 @@ const updateBanner = async (req, res) => {
 };
 
 /**
+ * Upload banner image, convert to WebP, and save to Firebase Storage (banners/ folder)
+ * POST /api/banners/upload
+ */
+const uploadBannerImage = async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ success: false, message: 'No image file uploaded' });
+    }
+
+    const originalName = req.file.originalname || 'banner';
+    const result = await uploadBannerToFirebase(req.file.buffer, originalName);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Banner image converted to WebP and uploaded to Firebase Storage',
+      data: {
+        url: result.url,
+        filePath: result.filePath,
+        size: result.size,
+        originalSize: result.originalSize
+      }
+    });
+  } catch (error) {
+    console.error('Upload Banner Image Error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * Delete Banner
  * DELETE /api/banners/:id
  */
 const deleteBanner = async (req, res) => {
   try {
     const { id } = req.params;
-    const deleted = await Banner.destroy({ where: { id } });
-    if (deleted) {
-      return res.status(200).json({ success: true, message: 'Banner deleted' });
+    const banner = await Banner.findByPk(id);
+    if (!banner) {
+      return res.status(404).json({ success: false, message: 'Banner not found' });
     }
-    res.status(404).json({ success: false, message: 'Banner not found' });
+
+    // Delete image from Firebase Storage if it was uploaded there
+    if (banner.img) {
+      await deleteBannerFromFirebase(banner.img);
+    }
+
+    await banner.destroy();
+    return res.status(200).json({ success: true, message: 'Banner deleted successfully' });
   } catch (error) {
+    console.error('Delete Banner Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -308,5 +346,6 @@ module.exports = {
   getActiveBanners,
   getBannerById,
   updateBanner,
-  deleteBanner
+  deleteBanner,
+  uploadBannerImage
 };
