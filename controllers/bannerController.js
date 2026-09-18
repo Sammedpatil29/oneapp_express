@@ -82,11 +82,12 @@ const getAllBanners = async (req, res) => {
 
     if (placement) {
       const target = String(placement).trim().toLowerCase();
+      const targetNoSpace = target.replace(/\s+/g, '');
       const filtered = banners.filter(b => {
         const list = Array.isArray(b.placements) && b.placements.length > 0
           ? b.placements.map(p => String(p).trim().toLowerCase())
           : [String(b.placement || '').trim().toLowerCase()];
-        return list.includes(target);
+        return list.some(p => p === target || p.replace(/\s+/g, '') === targetNoSpace);
       });
       return res.status(200).json({ success: true, data: filtered });
     }
@@ -159,10 +160,14 @@ const getActiveBanners = async (req, res) => {
       // 1. Placement tag match (multi-select check)
       if (placement) {
         const reqPlacement = String(placement).trim().toLowerCase();
+        const reqPlacementNoSpace = reqPlacement.replace(/\s+/g, '');
         const bannerPlacements = Array.isArray(banner.placements) && banner.placements.length > 0
           ? banner.placements.map(p => String(p).trim().toLowerCase())
           : [String(banner.placement || '').trim().toLowerCase()];
-        if (!bannerPlacements.includes(reqPlacement)) {
+        const hasPlacement = bannerPlacements.some(
+          p => p === reqPlacement || p.replace(/\s+/g, '') === reqPlacementNoSpace
+        );
+        if (!hasPlacement) {
           return false;
         }
       }
