@@ -142,6 +142,99 @@ async function deleteBannerFromFirebase(imageUrl) {
 }
 
 /**
+ * Converts image buffer to WebP with size optimization and uploads to services/ dedicated folder
+ * @param {Buffer} fileBuffer
+ * @param {string} [originalName]
+ * @returns {Promise<{ url: string, filePath: string, size: number, originalSize: number }>}
+ */
+async function uploadServiceToFirebase(fileBuffer, originalName = 'service') {
+  const bucket = getFirebaseBucket();
+
+  // 1. Optimize and convert to WebP using sharp
+  // Services are icons/illustrations displayed on cards and lists, 800px max is crisp for retina while being ultra-lightweight
+  const webpBuffer = await sharp(fileBuffer)
+    .resize({
+      width: 800,
+      height: 800,
+      withoutEnlargement: true,
+      fit: 'inside'
+    })
+    .webp({
+      quality: 85,
+      effort: 4
+    })
+    .toBuffer();
+
+  // 2. Generate unique filename in services/ folder
+  const randomSuffix = crypto.randomBytes(4).toString('hex');
+  const sanitizedBase = path.parse(originalName).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 25);
+  const filePath = `services/${sanitizedBase}_${Date.now()}_${randomSuffix}.webp`;
+
+  // 3. Generate persistent Firebase download token
+  const downloadToken = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+
+  // 4. Save to Firebase Storage
+  const file = bucket.file(filePath);
+  await file.save(webpBuffer, {
+    metadata: {
+      contentType: 'image/webp',
+      metadata: {
+        firebaseStorageDownloadTokens: downloadToken
+      }
+    }
+  });
+
+  // 5. Construct public download URL
+  const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}`;
+
+  return {
+    url,
+    filePath,
+    size: webpBuffer.length,
+    originalSize: fileBuffer.length
+  };
+}
+
+/**
+ * Deletes a service image file from Firebase Storage if it was uploaded to services/ folder
+ * @param {string} imageUrl
+ * @returns {Promise<boolean>}
+ */
+async function deleteServiceFromFirebase(imageUrl) {
+  if (!imageUrl || typeof imageUrl !== 'string') {
+    return false;
+  }
+
+  // Check if it's a Firebase Storage URL for services
+  if (!imageUrl.includes('firebasestorage.googleapis.com') || !imageUrl.includes('/o/services')) {
+    return false;
+  }
+
+  try {
+    const bucket = getFirebaseBucket();
+    const parts = imageUrl.split('/o/');
+    if (parts.length < 2) return false;
+
+    const pathWithQuery = parts[1];
+    const encodedPath = pathWithQuery.split('?')[0];
+    const decodedPath = decodeURIComponent(encodedPath);
+
+    // Security check: only delete within services/ directory
+    if (!decodedPath.startsWith('services/')) {
+      return false;
+    }
+
+    const file = bucket.file(decodedPath);
+    await file.delete({ ignoreNotFound: true });
+    console.log(`🗑️ Deleted service image from Firebase Storage: ${decodedPath}`);
+    return true;
+  } catch (error) {
+    console.warn(`⚠️ Could not delete service image from Firebase (${imageUrl}):`, error.message);
+    return false;
+  }
+}
+
+/**
  * Detect document type from filename
  */
 function detectDocType(fileName = '') {
@@ -338,6 +431,8 @@ module.exports = {
   getFirebaseBucket,
   uploadBannerToFirebase,
   deleteBannerFromFirebase,
+  uploadServiceToFirebase,
+  deleteServiceFromFirebase,
   detectDocType,
   uploadRiderDocumentToFirebase,
   uploadRiderKycZipToFirebase,

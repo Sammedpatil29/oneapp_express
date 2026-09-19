@@ -68,6 +68,8 @@ const propertyRoutes = require('./Routes/propertyRoutes');
 const { seedProperties } = require('./controllers/propertyController');
 const pharmacyRoutes = require('./Routes/pharmacyRoutes');
 const { seedPharmacy } = require('./controllers/pharmacyController');
+const vendorRoutes = require('./Routes/vendorRoutes');
+const { seedVendor } = require('./controllers/vendorController');
 const firebaseStorageRoutes = require('./Routes/firebaseStorageRoutes');
 const path = require('path');
 
@@ -169,6 +171,9 @@ sequelize
 
     // Auto seed initial pharmacy medicines and lab tests if empty
     seedPharmacy();
+
+    // Auto seed initial dummy vendor if empty
+    seedVendor();
   })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
@@ -208,6 +213,8 @@ app.use('/api/service-areas', serviceAreaRoutes);
 app.use('/api/referral', referralRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/pharmacy', pharmacyRoutes);
+app.use('/api/vendor', vendorRoutes);
+app.use('/vendor', vendorRoutes);
 app.use('/api/firebase-storage', firebaseStorageRoutes);
 
 // ✅ OTA Updates static route (serves manifests and update bundles for OtaKit)

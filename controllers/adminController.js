@@ -10,8 +10,13 @@ const User = require('../models/customUserModel');
 const Rider = require('../models/ridersModel');
 const PharmacyOrder = require('../models/pharmacyOrderModel');
 const { Op } = require('sequelize');
+const { sendEmailUtility } = require('./emailController');
 
 const JWT_SECRET = process.env.JWT_SECRET || "django-insecure-0v(fl_v5t97hk)0mx&qq!b80ua)@-a@2e(5v4nac!$3l(m@9#(";
+
+// In-memory store for admin password reset OTPs
+// Format: { phone: { otp, email, adminId, expiresAt, attempts } }
+const adminResetOtpStore = new Map();
 
 /**
  * Create a new Admin User
@@ -396,5 +401,243 @@ exports.getAdminProfile = async (req, res) => {
   } catch (error) {
     console.error('Get Admin Profile Error:', error);
     res.status(401).json({ success: false, message: 'Invalid or expired token' });
+  }
+};
+
+/**
+ * Forgot Password - Send OTP to admin's registered email
+ * POST /api/admin/forgot-password
+ */
+exports.adminForgotPassword = async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'Phone number is required' });
+    }
+
+    const admin = await AdminUser.findOne({ where: { phone } });
+    if (!admin) {
+      return res.status(404).json({ success: false, message: 'No admin account found with this phone number' });
+    }
+
+    if (!admin.email) {
+      return res.status(400).json({ success: false, message: 'No email address registered for this account. Contact your administrator.' });
+    }
+
+    // Generate 6-digit OTP
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+
+    // Store OTP with 10-minute expiry
+    adminResetOtpStore.set(phone, {
+      otp,
+      email: admin.email,
+      adminId: admin.id,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+      attempts: 0
+    });
+
+    // Mask email for response (e.g., p***u@gmail.com)
+    const emailParts = admin.email.split('@');
+    const name = emailParts[0];
+    const maskedName = name.length <= 2 
+      ? name[0] + '***' 
+      : name[0] + '***' + name[name.length - 1];
+    const maskedEmail = maskedName + '@' + emailParts[1];
+
+    // Send OTP email
+    const emailBody = `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+        <div style="background: linear-gradient(135deg, #000000, #1f1f1f); padding: 30px 24px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">ONE<span style="font-weight: 300;">APP</span></h1>
+          <p style="color: #888; margin: 8px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: 2px;">Admin Console</p>
+        </div>
+        <div style="padding: 32px 24px;">
+          <h2 style="color: #333; margin: 0 0 8px; font-size: 20px;">Password Reset</h2>
+          <p style="color: #666; font-size: 14px; line-height: 1.6;">Hi ${admin.first_name || 'Admin'}, use the OTP below to reset your password. This code expires in <strong>10 minutes</strong>.</p>
+          <div style="background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 10px; padding: 20px; text-align: center; margin: 24px 0;">
+            <span style="font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #000;">${otp}</span>
+          </div>
+          <p style="color: #999; font-size: 12px; text-align: center;">If you didn't request this, please ignore this email.</p>
+        </div>
+        <div style="background: #f8f9fa; padding: 16px 24px; text-align: center; border-top: 1px solid #eee;">
+          <p style="color: #aaa; font-size: 11px; margin: 0;">© ${new Date().getFullYear()} OneApp Admin Console</p>
+        </div>
+      </div>
+    `;
+
+    const emailResult = await sendEmailUtility(admin.email, 'OneApp Admin - Password Reset OTP', emailBody);
+
+    if (!emailResult.success) {
+      return res.status(500).json({ success: false, message: 'Failed to send OTP email. Please try again.' });
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'OTP sent successfully', 
+      maskedEmail 
+    });
+  } catch (error) {
+    console.error('Admin Forgot Password Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Verify Reset OTP
+ * POST /api/admin/verify-reset-otp
+ */
+exports.adminVerifyResetOtp = async (req, res) => {
+  try {
+    const { phone, otp } = req.body;
+
+    if (!phone || !otp) {
+      return res.status(400).json({ success: false, message: 'Phone and OTP are required' });
+    }
+
+    const stored = adminResetOtpStore.get(phone);
+
+    if (!stored) {
+      return res.status(400).json({ success: false, message: 'No OTP found. Please request a new one.' });
+    }
+
+    // Check expiry
+    if (Date.now() > stored.expiresAt) {
+      adminResetOtpStore.delete(phone);
+      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' });
+    }
+
+    // Check max attempts
+    if (stored.attempts >= 5) {
+      adminResetOtpStore.delete(phone);
+      return res.status(429).json({ success: false, message: 'Too many failed attempts. Please request a new OTP.' });
+    }
+
+    // Verify OTP
+    if (stored.otp !== String(otp).trim()) {
+      stored.attempts++;
+      return res.status(400).json({ 
+        success: false, 
+        message: `Invalid OTP. ${5 - stored.attempts} attempts remaining.` 
+      });
+    }
+
+    // OTP verified — generate a short-lived reset token (5 min)
+    const resetToken = jwt.sign(
+      { adminId: stored.adminId, purpose: 'password_reset' }, 
+      JWT_SECRET, 
+      { expiresIn: '5m' }
+    );
+
+    // Don't delete the OTP yet (cleanup happens on password reset or expiry)
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'OTP verified successfully',
+      resetToken 
+    });
+  } catch (error) {
+    console.error('Admin Verify Reset OTP Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Reset Password (using reset token from verified OTP)
+ * POST /api/admin/reset-password
+ */
+exports.adminResetPassword = async (req, res) => {
+  try {
+    const { resetToken, newPassword } = req.body;
+
+    if (!resetToken || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Reset token and new password are required' });
+    }
+
+    if (String(newPassword).trim().length < 4) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 4 characters long' });
+    }
+
+    // Verify the reset token
+    let decoded;
+    try {
+      decoded = jwt.verify(resetToken, JWT_SECRET);
+    } catch (err) {
+      return res.status(400).json({ success: false, message: 'Reset token has expired. Please start over.' });
+    }
+
+    if (decoded.purpose !== 'password_reset') {
+      return res.status(400).json({ success: false, message: 'Invalid reset token' });
+    }
+
+    // Find admin and update password
+    const admin = await AdminUser.findByPk(decoded.adminId);
+    if (!admin) {
+      return res.status(404).json({ success: false, message: 'Admin not found' });
+    }
+
+    const hashedPassword = await bcrypt.hash(String(newPassword).trim(), 10);
+    admin.password_field = hashedPassword;
+    await admin.save();
+
+    // Cleanup: remove OTP from store
+    adminResetOtpStore.delete(admin.phone);
+
+    res.status(200).json({ success: true, message: 'Password reset successfully. You can now login with your new password.' });
+  } catch (error) {
+    console.error('Admin Reset Password Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Change Password (for logged-in admin via settings)
+ * POST /api/admin/change-password
+ */
+exports.adminChangePassword = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current password and new password are required' });
+    }
+
+    if (String(newPassword).trim().length < 4) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 4 characters long' });
+    }
+
+    const admin = await AdminUser.findByPk(decoded.user_id);
+    if (!admin) {
+      return res.status(404).json({ success: false, message: 'Admin not found' });
+    }
+
+    // Verify current password
+    const isMatch = await bcrypt.compare(String(currentPassword).trim(), admin.password_field);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+    }
+
+    // Hash and save new password
+    const hashedPassword = await bcrypt.hash(String(newPassword).trim(), 10);
+    admin.password_field = hashedPassword;
+    await admin.save();
+
+    res.status(200).json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Admin Change Password Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
