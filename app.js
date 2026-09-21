@@ -68,6 +68,8 @@ const propertyRoutes = require('./Routes/propertyRoutes');
 const { seedProperties } = require('./controllers/propertyController');
 const pharmacyRoutes = require('./Routes/pharmacyRoutes');
 const { seedPharmacy } = require('./controllers/pharmacyController');
+const doctorRoutes = require('./Routes/doctorRoutes');
+const { seedDoctors } = require('./controllers/doctorController');
 const vendorRoutes = require('./Routes/vendorRoutes');
 const { seedVendor } = require('./controllers/vendorController');
 const firebaseStorageRoutes = require('./Routes/firebaseStorageRoutes');
@@ -174,6 +176,9 @@ sequelize
 
     // Auto seed initial dummy vendor if empty
     seedVendor();
+
+    // Auto seed initial doctors if empty
+    seedDoctors();
   })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
@@ -213,6 +218,7 @@ app.use('/api/service-areas', serviceAreaRoutes);
 app.use('/api/referral', referralRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/pharmacy', pharmacyRoutes);
+app.use('/api/doctor', doctorRoutes);
 app.use('/api/vendor', vendorRoutes);
 app.use('/vendor', vendorRoutes);
 app.use('/api/firebase-storage', firebaseStorageRoutes);
