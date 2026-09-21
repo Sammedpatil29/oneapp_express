@@ -1,9 +1,9 @@
 {
   "version": "0.0.62",
   "url": "https://oneapp-express-singapore.onrender.com/ota/bundles/oneapp-bundle-0.0.62.zip",
-  "sha256": "e1c100a65467956bfd22bd6bf8cbbb5c1e4bd7183e569e943b507d86b6dbd155",
-  "size": 3756426,
-  "releaseId": "oneapp-rel-0.0.62-mu9kpxe0",
+  "sha256": "01236d2414b6bcce5717815b28885314374f808a8cf19452c82d2b05899f07c7",
+  "size": 3782751,
+  "releaseId": "oneapp-rel-0.0.62-mub77l78",
   "strategy": "zip",
   "forceImmediate": false
 }
