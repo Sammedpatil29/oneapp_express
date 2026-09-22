@@ -91,6 +91,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 require('./models/riderTransactionModel');
+require('./models/vendorRegistrationModel');
 
 // ===== Sequelize sync =====
 sequelize
@@ -179,6 +180,20 @@ sequelize
 
     // Auto seed initial doctors if empty
     seedDoctors();
+
+    try {
+      const VendorRegistration = require('./models/vendorRegistrationModel');
+      await VendorRegistration.sync({ alter: false });
+      await sequelize.query(`
+        ALTER TABLE "vendor_registrations" 
+        ADD COLUMN IF NOT EXISTS "service_type" VARCHAR(50) DEFAULT 'grocery',
+        ADD COLUMN IF NOT EXISTS "pan_number" VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS "license_number" VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS "documents" JSONB DEFAULT '{}'::jsonb;
+      `);
+    } catch (regSyncErr) {
+      console.warn('⚠️ VendorRegistration sync notice:', regSyncErr.message);
+    }
   })
   .catch((err) => console.error('❌ Error syncing models:', err));
 
